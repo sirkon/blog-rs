@@ -1,0 +1,13 @@
+[package]
+name = "blog"
+version = "0.1.0"
+edition = "2024"
+
+[profile.dev]
+overflow-checks = false
+
+[profile.release]
+overflow-checks = false
+
+[dependencies]
+num-traits = "0.2.19"

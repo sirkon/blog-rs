@@ -1,0 +1,5 @@
+# Разрешить использование нестабильных функций
+unstable_features = true
+# Установить порог выравнивания (например, 20 символов)
+enum_discrim_align_threshold = 20
+struct_field_align_threshold = 20
