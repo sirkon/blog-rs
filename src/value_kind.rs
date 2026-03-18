@@ -55,9 +55,11 @@ pub const SLICE_STRING: ValueKind = 83;
 
 pub const MAX: ValueKind = 255;
 
-pub const PREDEFINED_USER_ID: ValueKind = 1 << 8;
+pub const PREDEFINED_NAME_CONTEXT: ValueKind = 1 << 8;
+pub const PREDEFINED_NAME_TEXT: ValueKind = 2 << 8;
+pub const PREDEFINED_NAME_LOCATION: ValueKind = 3 << 8;
 
-// There're ValueKind values at 257 and further to represent [Attr] with predefined keys, where their
+// There're ValueKind values at 256 and further to represent [Attr] with predefined keys, where their
 // lowest byte represents a kind and the upper 7 bytes refer a key index.
 
 pub fn string(k: ValueKind) -> String {
@@ -108,11 +110,11 @@ pub fn string(k: ValueKind) -> String {
         83 => "[]string".to_string(),
         _ => {
             // Probably a predefined thing?
-            match k {
-                PREDEFINED_USER_ID => (),
-                _ => return format!("spec-kind-unknown[{}]", k),
+            let index = k >> 8;
+            if index <= PREDEFINED_KEYS.len() as ValueKind {
+                return PREDEFINED_KEYS[(index - 1) as usize].to_string();
             }
-            PREDEFINED_KEYS[(k >> 8) as usize - 1].to_string()
+            return format!("spec-kind-unknown[{}]", k);
         }
     }
 }
@@ -120,9 +122,7 @@ pub fn string(k: ValueKind) -> String {
 // PredefinedKeys keys can be set via the extension of kind in the
 // higher 7 bytes of uint64. That extended bytes keep an index of
 // the key spec in this slice.
-pub const PREDEFINED_KEYS: &[&str] = &[
-    "user-id",
-];
+pub const PREDEFINED_KEYS: &[&str] = &["@context", "@text", "@location"];
 
 // Нужно использовать новтип для реализации Display
 pub struct Kind(pub ValueKind);
@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(NEW_NODE, 1);
         assert_eq!(BOOL, 32);
         assert_eq!(MAX, 255);
-        assert_eq!(PREDEFINED_USER_ID, 256);
+        assert_eq!(PREDEFINED_NAME_CONTEXT, 256);
     }
 
     #[test]
@@ -158,8 +158,8 @@ mod tests {
 
     #[test]
     fn test_predefined() {
-        let user_id_kind = PREDEFINED_USER_ID; // index 0
-        assert_eq!(string(user_id_kind), "user-id");
+        let location_kind = PREDEFINED_NAME_LOCATION; // index 0
+        assert_eq!(string(location_kind), "@location");
     }
 
     #[test]

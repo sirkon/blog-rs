@@ -2,32 +2,91 @@
 #![allow(unsafe_code)]
 
 use crate::value_kind;
+use crate::value_kind::ValueKind;
 use std::fmt::{Display, Formatter};
 use std::slice;
 
 pub struct CtxParser {
-    need_tree: bool,
-    builder:   TreeBuilder,
+    need_tree:   bool,
+    builder:     TreeBuilder,
+    groups_lens: Vec<(usize, usize)>,
+    caps:        Vec<usize>,
+    err_frags:   Vec<(usize, usize)>,
+    state_stack: Vec<ParsingState>,
 }
 
 impl CtxParser {
     pub fn new() -> Self {
         Self {
-            need_tree: false,
-            builder:   TreeBuilder::new(),
+            need_tree:   false,
+            builder:     TreeBuilder::new(),
+            groups_lens: Vec::with_capacity(8),
+            caps:        Vec::with_capacity(8),
+            err_frags:   Vec::with_capacity(8),
+            state_stack: Vec::with_capacity(8),
         }
     }
 
     pub unsafe fn build_struct<'a>(&mut self, src: &'a [u8]) {
         self.builder.reset();
+        self.groups_lens.set_len(0);
+        self.caps.set_len(0);
+        self.err_frags.set_len(0);
+        self.state_stack.set_len(0);
 
         let mut off: usize = 0;
         let mut need_tree: bool = false;
         let ptr = src.as_ptr() as *mut u8;
         let mut had_stages = false;
+        let mut cap = src.len();
+        let mut parsing_state = ParsingState::Normal;
+        let mut group_cap: usize = 0;
+        let mut group_off: usize = 0;
         loop {
-            if off >= src.len() {
-                return;
+            match parsing_state {
+                ParsingState::Normal => {
+                    if off >= cap {
+                        if self.caps.is_empty() {
+                            return;
+                        }
+                    }
+                }
+
+                ParsingState::Group => {
+                    if group_off >= group_cap {
+                        self.builder.leave_group();
+                        if !self.groups_lens.is_empty() {
+                            (group_off, group_cap) = self.groups_lens.pop().unwrap();
+                            continue;
+                        } else {
+                            parsing_state = self.state_stack.pop().unwrap();
+                        }
+                    }
+                }
+
+                ParsingState::Error => {
+                    if off >= cap {
+                        self.builder.leave_group(); // Leave context group which is here.
+                        self.builder.leave_group(); // Leave error itself.
+                        if self.caps.is_empty() {
+                            return;
+                        }
+                        cap = self.caps.pop().unwrap();
+                        parsing_state = self.state_stack.pop().unwrap();
+                    }
+                }
+
+                ParsingState::ErrorEmbed => {
+                    if off >= cap {
+                        self.builder.leave_group();
+                        self.builder.leave_group();
+                        if self.caps.is_empty() {
+                            return;
+                        }
+                        cap = self.caps.pop().unwrap();
+                        parsing_state = self.state_stack.pop().unwrap();
+                    }
+                }
             }
 
             // Read code and continue the loop on some types that have no payload.
@@ -113,37 +172,22 @@ impl CtxParser {
 
                 value_kind::TIME => {
                     let v = *(ptr.add(off) as *const u64);
-                    self.builder.add(
-                        NodeKind::Time,
-                        key_len,
-                        key_off,
-                        v as u32,
-                        (v >> 32) as u32,
-                    );
+                    self.builder
+                        .add(NodeKind::Time, key_len, key_off, v as u32, (v >> 32) as u32);
                     off += 8
                 }
 
                 value_kind::DURATION => {
                     let v = *(ptr.add(off) as *const u64);
-                    self.builder.add(
-                        NodeKind::Time,
-                        key_len,
-                        key_off,
-                        v as u32,
-                        (v >> 32) as u32,
-                    );
+                    self.builder
+                        .add(NodeKind::Time, key_len, key_off, v as u32, (v >> 32) as u32);
                     off += 8
                 }
 
                 value_kind::I => {
                     let v = *(ptr.add(off) as *const u64);
-                    self.builder.add(
-                        NodeKind::Int,
-                        key_len,
-                        key_off,
-                        v as u32,
-                        (v >> 32) as u32,
-                    );
+                    self.builder
+                        .add(NodeKind::Int, key_len, key_off, v as u32, (v >> 32) as u32);
                     off += 8
                 }
 
@@ -170,25 +214,15 @@ impl CtxParser {
 
                 value_kind::I64 => {
                     let v = *(ptr.add(off) as *const i64);
-                    self.builder.add(
-                        NodeKind::Int,
-                        key_len,
-                        key_off,
-                        v as u32,
-                        (v >> 32) as u32,
-                    );
+                    self.builder
+                        .add(NodeKind::Int, key_len, key_off, v as u32, (v >> 32) as u32);
                     off += 8
                 }
 
                 value_kind::U => {
                     let v = *(ptr.add(off) as *const u64);
-                    self.builder.add(
-                        NodeKind::Uint,
-                        key_len,
-                        key_off,
-                        v as u32,
-                        (v >> 32) as u32,
-                    );
+                    self.builder
+                        .add(NodeKind::Uint, key_len, key_off, v as u32, (v >> 32) as u32);
                     off += 8
                 }
 
@@ -214,13 +248,8 @@ impl CtxParser {
 
                 value_kind::U64 => {
                     let v = *(ptr.add(off) as *const u64);
-                    self.builder.add(
-                        NodeKind::U64,
-                        key_len,
-                        key_off,
-                        v as u32,
-                        (v >> 32) as u32,
-                    );
+                    self.builder
+                        .add(NodeKind::U64, key_len, key_off, v as u32, (v >> 32) as u32);
                     off += 8;
                 }
 
@@ -232,13 +261,8 @@ impl CtxParser {
 
                 value_kind::FLOAT64 => {
                     let v = *(ptr.add(off) as *const u64);
-                    self.builder.add(
-                        NodeKind::F64,
-                        key_len,
-                        key_off,
-                        v as u32,
-                        (v >> 32) as u32,
-                    );
+                    self.builder
+                        .add(NodeKind::F64, key_len, key_off, v as u32, (v >> 32) as u32);
                     off += 8;
                 }
 
@@ -302,13 +326,69 @@ impl CtxParser {
                     off = self.slice(ptr, off, NodeKind::F64s, key_len, key_off, 8);
                 }
 
+                value_kind::SLICE_STRING => {
+                    let (lenght, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    let start = off;
+                    for _ in 0..lenght {
+                        let (length, size) = read_uvarint(ptr.add(off));
+                        off += size + length as usize;
+                    }
+                    self.builder.add(
+                        NodeKind::Strs,
+                        key_len,
+                        key_off,
+                        lenght as u32,
+                        start as u32,
+                    );
+                }
+
+                value_kind::ERROR => {
+                    self.builder.add(NodeKind::Error, key_len, key_off, 0, 0);
+                    self.builder.enter_group();
+                    let (lenght, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    self.caps.push(cap);
+                    self.state_stack.push(parsing_state);
+                    parsing_state = ParsingState::Error;
+                    cap = off + lenght as usize;
+                }
+
+                value_kind::ERROR_EMBED => {
+                    self.builder
+                        .add(NodeKind::ErrorEmbed, key_len, key_off, 0, 0);
+                    self.builder.enter_group();
+                    let (lenght, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    self.builder
+                        .add(NodeKind::ErrEmbedText, 0, 0, lenght as u32, off as u32);
+                    self.caps.push(cap);
+                    self.state_stack.push(parsing_state);
+                    off = off + lenght as usize;
+                    let (lenght, size) = read_uvarint(ptr.add(off));
+                    cap = off + size + lenght as usize;
+                }
+
+                value_kind::GROUP => {
+                    self.builder.add(NodeKind::Group, key_len, key_off, 0, 0);
+                    let (lenght, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    self.groups_lens.push((group_off, group_cap));
+                    self.state_stack.push(parsing_state);
+                    group_off = 0;
+                    group_cap = lenght as usize;
+                    parsing_state = ParsingState::Group;
+                }
+
                 _ => {}
             }
+
+            group_off += 1;
         }
     }
 
     #[inline(always)]
-    pub unsafe fn leave_stage_group_if_needed(&mut self, had_stages:bool) -> bool {
+    pub unsafe fn leave_stage_group_if_needed(&mut self, had_stages: bool) -> bool {
         if had_stages {
             self.builder.leave_group();
         }
@@ -347,6 +427,15 @@ impl CtxParser {
 
         off + size + (length as usize) * siz
     }
+}
+
+/// Denotes a parsing state.
+#[derive(Copy, Clone)]
+enum ParsingState {
+    Normal,
+    Group,
+    Error,
+    ErrorEmbed,
 }
 
 /// Defines a node of blog context structure.
@@ -399,6 +488,7 @@ pub enum NodeKind {
     ErrTxt         = 18,
     ErrTxtFragment = 19,
     ErrLoc         = 20,
+    ErrEmbedText   = 21,
 
     // Slices/arrays/lists or whatever you call them.
     Bools          = 64,
@@ -419,9 +509,10 @@ pub enum NodeKind {
     // Roots.
     Group          = 128,
     Error          = 129,
-    ErrorStageNew  = 130,
-    ErrorStageWrap = 131,
-    ErrorStageCtx  = 132,
+    ErrorEmbed     = 130,
+    ErrorStageNew  = 131,
+    ErrorStageWrap = 132,
+    ErrorStageCtx  = 133,
 }
 
 impl NodeKind {
@@ -446,6 +537,7 @@ impl NodeKind {
             NodeKind::Bytes => "bytes",
             NodeKind::ErrTxt => "error:Text",
             NodeKind::ErrLoc => "error:Loc",
+            NodeKind::ErrEmbedText => "error:EmbedText",
             NodeKind::Bools => "bools",
             NodeKind::Ints => "ints",
             NodeKind::I8s => "i8s",
@@ -462,6 +554,7 @@ impl NodeKind {
             NodeKind::Strs => "strs",
             NodeKind::Group => "group",
             NodeKind::Error => "error",
+            NodeKind::ErrorEmbed => "error:embed",
             NodeKind::ErrorStageNew => "error:New",
             NodeKind::ErrorStageWrap => "error:Wrap",
             NodeKind::ErrorStageCtx => "error:Ctx",
