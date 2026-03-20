@@ -67,7 +67,7 @@ impl<'a> LogRender<'a> {
                 }
                 NodeKind::Time => {
                     dst.push(b'"');
-                    log_render::render_time(dst, node.val_as_u64() as i64);
+                    self.render_time(dst, node.val_as_u64() as i64);
                     dst.push(b'"');
                 }
                 NodeKind::Dur => {
@@ -300,13 +300,13 @@ impl<'a> LogRender<'a> {
                 }
                 NodeKind::F64s => {
                     dst.push(b'[');
-                    let _xptr = ptr.add(node.val_off as usize);
+                    let xptr = ptr.add(node.val_off as usize);
                     for i in 0..node.val_len as usize {
                         if i > 0 {
                             dst.push(b',');
                             dst.push(b' ');
                         }
-                        let val = ptr.add(i * 8).cast::<u64>().read_unaligned();
+                        let val = xptr.add(i * 8).cast::<u64>().read_unaligned();
                         self.render_float(dst, f64::from_bits(u64::from_le(val)));
                     }
                     dst.push(b']');

@@ -48,7 +48,7 @@ impl<'a> LogRender<'a> {
     pub(crate) unsafe fn render(&mut self, dst: &mut Vec<u8>, src: &[u8]) { unsafe {
         let ptr: *const u8 = src.as_ptr();
 
-        log_render::render_time(dst, self.time as i64);
+        self.render_time(dst, self.time as i64);
         let is_panic = self.render_level(dst);
         self.render_location(dst, ptr);
 
@@ -257,56 +257,60 @@ impl<'a> LogRender<'a> {
             }
         }
     }
-}
 
-#[inline(always)]
-pub(crate) fn render_time(dst: &mut Vec<u8>, unix_nanos: i64) {
-    let secs = unix_nanos / 1_000_000_000;
-    let nanos = unix_nanos % 1_000_000_000;
+    #[inline(always)]
+    pub(crate) fn render_time(&mut self, dst: &mut Vec<u8>, unix_nanos: i64) {
+        let secs = unix_nanos / 1_000_000_000;
+        let nanos = unix_nanos % 1_000_000_000;
 
-    // Математика эпохи (UTC)
-    let z = (secs / 86400) + 719468;
-    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = (z - era * 146097) as u32;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = (yoe as i32) + (era as i32 * 400);
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = y + (if m <= 2 { 1 } else { 0 });
+        // Математика эпохи (UTC)
+        let z = (secs / 86400) + 719468;
+        let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+        let doe = (z - era * 146097) as u32;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = (yoe as i32) + (era as i32 * 400);
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = y + (if m <= 2 { 1 } else { 0 });
 
-    let h = (secs / 3600) % 24;
-    let min = (secs / 60) % 60;
-    let s = secs % 60;
+        let h = (secs / 3600) % 24;
+        let min = (secs / 60) % 60;
+        let s = secs % 60;
 
-    // Пишем в буфер "вручную" (без парсинга формат-строки)
-    // ГГГГ-ММ-ДД ЧЧ:ММ:СС.нннннн
-    let start = dst.len();
-    dst.extend_from_slice(b"0000-00-00 00:00:00.000");
-    let b = &mut dst[start..];
+        // Пишем в буфер "вручную" (без парсинга формат-строки)
+        // ГГГГ-ММ-ДД ЧЧ:ММ:СС.нннннн
+        let start = dst.len();
+        dst.extend_from_slice(b"0000-00-00 00:00:00.000");
+        let b = &mut dst[start..];
 
-    // Быстрая запись чисел (можно еще быстрее через lookup-таблицу на 100 байт)
-    fn u2(b: &mut [u8], v: i64) {
-        b[0] = b'0' + (v / 10 % 10) as u8;
-        b[1] = b'0' + (v % 10) as u8;
+        // Быстрая запись чисел (можно еще быстрее через lookup-таблицу на 100 байт)
+        fn u2(b: &mut [u8], v: i64) {
+            b[0] = b'0' + (v / 10 % 10) as u8;
+            b[1] = b'0' + (v % 10) as u8;
+        }
+
+        // Год
+        let y_u = year as i64;
+        u2(&mut b[0..2], y_u / 100);
+        u2(&mut b[2..4], y_u);
+        // Остальное
+        u2(&mut b[5..7], m as i64);
+        u2(&mut b[8..10], d as i64);
+        u2(&mut b[11..13], h);
+        u2(&mut b[14..16], min);
+        u2(&mut b[17..19], s);
+
+        // Наносекунды (микро)
+        let mic = nanos / 1000 + 100_000;
+        let s = self.itoa.format(mic);
+        b[20..23].copy_from_slice(&s.as_bytes()[1..4]);
+        // u2(&mut b[20..23], mic / 1000);
     }
-
-    // Год
-    let y_u = year as i64;
-    u2(&mut b[0..2], y_u / 100);
-    u2(&mut b[2..4], y_u);
-    // Остальное
-    u2(&mut b[5..7], m as i64);
-    u2(&mut b[8..10], d as i64);
-    u2(&mut b[11..13], h);
-    u2(&mut b[14..16], min);
-    u2(&mut b[17..19], s);
-
-    // Наносекунды (микро)
-    let mic = nanos / 1000;
-    u2(&mut b[20..23], mic / 1000);
 }
+
+
 
 pub(crate) fn predefined_key<'a>(key: ValueKind) -> &'a [u8] {
     if key < 255 as ValueKind {
@@ -335,5 +339,15 @@ mod test {
         r.render_go_duration(&mut out, v);
 
         assert_eq!(out, b"342h56m7.890101121s");
+    }
+
+    #[test]
+    fn test_time() {
+        let t = 1773974798041168000i64;
+
+        let mut r = LogRender::new();
+        let mut out : Vec<u8> = Vec::new();
+        r.render_time(&mut out, t);
+        println!("{}", String::from_utf8(out).unwrap());
     }
 }
