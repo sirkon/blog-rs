@@ -1,4 +1,3 @@
-use std::fmt;
 
 pub const TRACE: u8 = 10u8;
 pub const DEBUG: u8 = 20u8;
