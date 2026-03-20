@@ -54,6 +54,7 @@ impl<'a> LogRender<'a> {
 
         if !is_panic {
             let (length, off) = self.msg;
+            println!("{} {}", off, length);
             dst.extend_from_slice(slice::from_raw_parts(ptr.add(off), length));
             dst.push(b' ');
 
@@ -104,6 +105,7 @@ impl<'a> LogRender<'a> {
     pub(crate) unsafe fn render_location(&mut self, dst: &mut Vec<u8>, ptr: *const u8) { unsafe {
         match self.loc {
             Some((lenght, off, line)) => {
+                dst.push(b'(');
                 dst.extend_from_slice(slice::from_raw_parts(ptr.add(off), lenght));
                 dst.push(b':');
                 let lin = self.itoa.format(line);
@@ -121,32 +123,30 @@ impl<'a> LogRender<'a> {
 
         match self.level {
             level::TRACE => {
-                dst.extend_from_slice(b"TRACE");
+                dst.extend_from_slice(b" TRACE");
             }
 
             level::DEBUG => {
-                dst.extend_from_slice(b"DEBUG");
+                dst.extend_from_slice(b" DEBUG");
             }
 
             level::INFO => {
-                dst.extend_from_slice(b" INFO");
+                dst.extend_from_slice(b"  INFO");
             }
 
             level::WARN => {
-                dst.extend_from_slice(b" WARN");
+                dst.extend_from_slice(b"  WARN");
             }
 
             level::ERROR => {
-                dst.extend_from_slice(b"ERROR");
+                dst.extend_from_slice(b" ERROR");
             }
 
             level::PANIC => {
                 is_panic = true;
-                dst.extend_from_slice(b"PANIC");
+                dst.extend_from_slice(b" PANIC");
             }
-
             _ => {
-                dst.copy_from_slice(b"     ");
                 match self.level {
                     0..10 => {
                         dst.extend_from_slice(b"   ");
@@ -258,6 +258,7 @@ impl<'a> LogRender<'a> {
         }
     }
 
+    /// TODO: replace on something functional, with timezones and so on.
     #[inline(always)]
     pub(crate) fn render_time(&mut self, dst: &mut Vec<u8>, unix_nanos: i64) {
         let secs = unix_nanos / 1_000_000_000;
@@ -282,7 +283,7 @@ impl<'a> LogRender<'a> {
         // Пишем в буфер "вручную" (без парсинга формат-строки)
         // ГГГГ-ММ-ДД ЧЧ:ММ:СС.нннннн
         let start = dst.len();
-        dst.extend_from_slice(b"0000-00-00 00:00:00.000");
+        dst.extend_from_slice(b"0000-00-00 00:00:00");
         let b = &mut dst[start..];
 
         // Быстрая запись чисел (можно еще быстрее через lookup-таблицу на 100 байт)
@@ -303,9 +304,11 @@ impl<'a> LogRender<'a> {
         u2(&mut b[17..19], s);
 
         // Наносекунды (микро)
-        let mic = nanos / 1000 + 100_000;
+        let mic = nanos / 1000 + 1_000_000;
         let s = self.itoa.format(mic);
-        b[20..23].copy_from_slice(&s.as_bytes()[1..4]);
+        let rs = &s.as_bytes()[1..];
+        dst.push(b'.');
+        dst.extend_from_slice(rs);
         // u2(&mut b[20..23], mic / 1000);
     }
 }
@@ -348,6 +351,7 @@ mod test {
         let mut r = LogRender::new();
         let mut out : Vec<u8> = Vec::new();
         r.render_time(&mut out, t);
-        println!("{}", String::from_utf8(out).unwrap());
+
+        assert_eq!(out, b"2026-03-20 02:46:38.041168");
     }
 }

@@ -8,7 +8,7 @@ use crate::log_parser_node::Node;
 
 impl<'a> LogRender<'a> {
     pub unsafe fn render_json(&mut self, dst: &mut Vec<u8>, src: &[u8]) { unsafe {
-        if src.is_empty() {
+        if self.ctx.is_empty () {
             dst.extend_from_slice(b"{}\n");
             return;
         }

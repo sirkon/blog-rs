@@ -15,6 +15,7 @@ pub struct LogParser {
     pub(crate) has_errors:          bool,
     pub(crate) use_tree_since:      usize,
     pub(crate) process_since_level: u8,
+    pub(crate) source_off:          usize,
 
     // Parsing data.
     pub(crate) time:     u64,
@@ -85,6 +86,7 @@ impl LogParser {
             has_errors:          false,
             use_tree_since:      10,
             process_since_level: 0,
+            source_off:          0,
 
             time:     0,
             level:    0,
@@ -94,13 +96,16 @@ impl LogParser {
         }
     }
 
-    pub(crate) fn make_record<'a>(&'a self, dst: &'a mut LogRender<'a>) {
+    pub(crate) fn make_record<'a, 'b>(&'a self, dst: &'b mut LogRender<'a>)
+    where
+        'a: 'b,
+    {
         dst.need_tree = self.ctx_size >= self.use_tree_since || self.has_errors;
         dst.time = self.time;
         dst.level = self.level;
         dst.loc = self.location;
         dst.msg = self.msg;
-        dst.ctx = self.ctx.ctrl.as_slice();
+        dst.ctx = &self.ctx.ctrl.as_slice()[..self.ctx.off];
         dst.grp_stack.clear();
         dst.err_stack.clear();
     }
@@ -125,13 +130,15 @@ impl LogParser {
     }
 
     #[inline(always)]
-    pub(crate) unsafe fn leave_stage_group_if_needed(&mut self, had_stages: bool) -> bool { unsafe {
-        if had_stages {
-            self.ctx.leave_group();
-        }
+    pub(crate) unsafe fn leave_stage_group_if_needed(&mut self, had_stages: bool) -> bool {
+        unsafe {
+            if had_stages {
+                self.ctx.leave_group();
+            }
 
-        true
-    }}
+            true
+        }
+    }
 
     #[inline(always)]
     pub(crate) unsafe fn varthing(
@@ -141,13 +148,15 @@ impl LogParser {
         nkind: NodeKind,
         key_len: u32,
         key_off: u32,
-    ) -> usize { unsafe {
-        let (length, size) = read_uvarint(src.add(off));
-        self.ctx
-            .add(nkind, key_len, key_off, length as u32, (off + size) as u32);
+    ) -> usize {
+        unsafe {
+            let (length, size) = read_uvarint(src.add(off));
+            self.ctx
+                .add(nkind, key_len, key_off, length as u32, (off + size) as u32);
 
-        off + size + length as usize
-    }}
+            off + size + length as usize
+        }
+    }
     #[inline(always)]
     pub(crate) unsafe fn slice(
         &mut self,
@@ -157,13 +166,15 @@ impl LogParser {
         key_len: u32,
         key_off: u32,
         siz: usize,
-    ) -> usize { unsafe {
-        let (length, size) = read_uvarint(src.add(off));
-        self.ctx
-            .add(nkind, key_len, key_off, length as u32, (off + size) as u32);
+    ) -> usize {
+        unsafe {
+            let (length, size) = read_uvarint(src.add(off));
+            self.ctx
+                .add(nkind, key_len, key_off, length as u32, (off + size) as u32);
 
-        off + size + (length as usize) * siz
-    }}
+            off + size + (length as usize) * siz
+        }
+    }
 }
 
 impl TreeBuilder {
@@ -178,11 +189,13 @@ impl TreeBuilder {
     }
 
     /// Resets the state of builder for further reuse.
-    pub(crate) unsafe fn reset(&mut self) { unsafe {
-        self.stack.set_len(0);
-        self.last = -1;
-        self.off = 0;
-    }}
+    pub(crate) unsafe fn reset(&mut self) {
+        unsafe {
+            self.stack.set_len(0);
+            self.last = -1;
+            self.off = 0;
+        }
+    }
 
     /// Adds a new node with given type and data.
     #[inline(always)]
@@ -193,43 +206,45 @@ impl TreeBuilder {
         key_off: u32,
         val_len: u32,
         val_off: u32,
-    ) { unsafe {
-        let node_size = 32;
-        let pos = self.off;
+    ) {
+        unsafe {
+            let node_size = 32;
+            let pos = self.off;
 
-        // 1. Check capacity and reallocate if needed.
-        if self.ctrl.capacity() < pos + 32 {
-            // Get some more space to avoid non-stop reallocates.
-            self.ctrl.reserve(1024);
-            self.ctrl.set_len(self.ctrl.capacity());
-        }
+            // 1. Check capacity and reallocate if needed.
+            if self.ctrl.capacity() < pos + 32 {
+                // Get some more space to avoid non-stop reallocates.
+                self.ctrl.reserve(1024);
+                self.ctrl.set_len(self.ctrl.capacity());
+            }
 
-        let ptr = self.ctrl.as_mut_ptr();
+            let ptr = self.ctrl.as_mut_ptr();
 
-        // 3. Get direct pointer to a Node in ctrl.
-        let node = ptr.add(pos) as *mut Node;
-        (*node).kind = kind;
-        (*node).next = 0;
-        (*node).child = 0;
-        (*node).key_len = key_len;
-        (*node).key_off = key_off;
-        (*node).val_len = val_len;
-        (*node).val_off = val_off;
+            // 3. Get direct pointer to a Node in ctrl.
+            let node = ptr.add(pos) as *mut Node;
+            (*node).kind = kind;
+            (*node).next = 0;
+            (*node).child = 0;
+            (*node).key_len = key_len;
+            (*node).key_off = key_off;
+            (*node).val_len = val_len;
+            (*node).val_off = val_off;
 
-        if self.last < 0 {
+            if self.last < 0 {
+                (self.last, self.off) = (self.off as isize, self.off + node_size);
+                return;
+            }
+
+            let prev = ptr.add(self.last as usize) as *mut Node;
+            let kind: u32 = (*prev).kind as u32;
+            if (kind >> 7) > 0 && (*prev).child == 0 {
+                (*prev).child = self.off as u32;
+            } else {
+                (*prev).next = self.off as u32;
+            }
             (self.last, self.off) = (self.off as isize, self.off + node_size);
-            return;
         }
-
-        let prev = ptr.add(self.last as usize) as *mut Node;
-        let kind: u32 = (*prev).kind as u32;
-        if (kind >> 7) > 0 && (*prev).child == 0 {
-            (*prev).child = self.off as u32;
-        } else {
-            (*prev).next = self.off as u32;
-        }
-        (self.last, self.off) = (self.off as isize, self.off + node_size);
-    }}
+    }
 
     /// Starts a new group AFTER root node (kind >=128). There's no check though,
     /// this is up to a user.
@@ -241,16 +256,18 @@ impl TreeBuilder {
 
     /// Exits existing group. Must be called somewhere after enter_group.
     #[inline(always)]
-    pub(crate) unsafe fn leave_group(&mut self) { unsafe {
-        let last = self.last;
-        self.last = self.stack.pop().unwrap() as isize;
+    pub(crate) unsafe fn leave_group(&mut self) {
+        unsafe {
+            let last = self.last;
+            self.last = self.stack.pop().unwrap() as isize;
 
-        if last == self.last {
-            // We are closing a root node that has no content.
-            let node = self.ctrl.as_mut_ptr().add(last as usize) as *mut Node;
-            (*node).child = u32::MAX;
+            if last == self.last {
+                // We are closing a root node that has no content.
+                let node = self.ctrl.as_mut_ptr().add(last as usize) as *mut Node;
+                (*node).child = u32::MAX;
+            }
         }
-    }}
+    }
 
     /// Превращает билд в готовое дерево (Zero-copy ссылки)
     pub(crate) unsafe fn finish<'a>(&'a self) -> Tree<'a> {
@@ -265,92 +282,98 @@ impl TreeBuilder {
     }
 
     // Shows collected data as a dump.
-    pub(crate) unsafe fn show(&mut self) { unsafe {
-        if self.off == 0 {
-            println!("empty");
-            return;
-        }
-
-        let mut pos = 0;
-        let mut stack: Vec<usize> = Vec::with_capacity(16);
-        let ptr = self.ctrl.as_mut_ptr();
-
-        loop {
-            let node = &mut *(ptr.add(pos) as *mut Node);
-
-            println!(
-                "{:03X} {:10} next[{:03X}] child[{:03X}] key.len[{:03}] key.off[{:03}] val[{:03}] val.off[{:03}]",
-                pos,
-                node.kind.string(),
-                node.next,
-                node.child,
-                node.key_len,
-                node.key_off,
-                node.val_len,
-                node.val_off,
-            );
-
-            if (node.kind as u32 >> 7) != 0 && node.child != u32::MAX {
-                stack.push(pos);
-                pos = node.child as usize;
-                continue;
+    pub(crate) unsafe fn show(&mut self) {
+        unsafe {
+            if self.off == 0 {
+                println!("empty");
+                return;
             }
 
-            let mut curr_node = node;
+            let mut pos = 0;
+            let mut stack: Vec<usize> = Vec::with_capacity(16);
+            let ptr = self.ctrl.as_mut_ptr();
+
             loop {
-                if curr_node.next != 0 {
-                    pos = curr_node.next as usize;
-                    break;
+                let node = &mut *(ptr.add(pos) as *mut Node);
+
+                println!(
+                    "{:03X} {:10} next[{:03X}] child[{:03X}] key.len[{:03}] key.off[{:03}] val[{:03}] val.off[{:03}]",
+                    pos,
+                    node.kind.string(),
+                    node.next,
+                    node.child,
+                    node.key_len,
+                    node.key_off,
+                    node.val_len,
+                    node.val_off,
+                );
+
+                if (node.kind as u32 >> 7) != 0 && node.child != u32::MAX {
+                    stack.push(pos);
+                    pos = node.child as usize;
+                    continue;
                 }
 
-                if stack.is_empty() {
-                    return;
-                }
+                let mut curr_node = node;
+                loop {
+                    if curr_node.next != 0 {
+                        pos = curr_node.next as usize;
+                        break;
+                    }
 
-                pos = stack.pop().unwrap();
-                curr_node = &mut *(ptr.add(pos) as *mut Node);
+                    if stack.is_empty() {
+                        return;
+                    }
+
+                    pos = stack.pop().unwrap();
+                    curr_node = &mut *(ptr.add(pos) as *mut Node);
+                }
             }
         }
-    }}
+    }
 }
 
 #[inline(always)]
-pub(crate) unsafe fn read_uvarint(ptr: *const u8) -> (u64, usize) { unsafe {
-    let mut res = 0u64;
-    let mut i = 0;
-    loop {
-        let b = *ptr.add(i);
-        res |= ((b & 0x7F) as u64) << (i * 7);
-        i += 1;
-        if b & 0x80 == 0 {
-            break;
+pub(crate) unsafe fn read_uvarint(ptr: *const u8) -> (u64, usize) {
+    unsafe {
+        let mut res = 0u64;
+        let mut i = 0;
+        loop {
+            let b = *ptr.add(i);
+            res |= ((b & 0x7F) as u64) << (i * 7);
+            i += 1;
+            if b & 0x80 == 0 {
+                break;
+            }
         }
-    }
 
-    (res, i)
-}}
+        (res, i)
+    }
+}
 
 #[inline(always)]
-pub(crate) unsafe fn read_uvarint_safe(ptr: *const u8, mut lim: usize) -> (u64, usize) { unsafe {
-    let mut res = 0u64;
-    let mut i = 0;
-    if lim > 10 {
-        lim = 10;
-    }
-    loop {
-        if i >= lim {
-            return (res, usize::MAX);
+pub(crate) unsafe fn read_uvarint_safe(ptr: *const u8, mut lim: usize) -> (u64, usize) {
+    unsafe {
+        let mut res = 0u64;
+        let mut i = 0;
+        if lim > 10 {
+            lim = 10;
         }
-        let b = *ptr.add(i);
-        res |= ((b & 0x7F) as u64) << (i * 7);
-        i += 1;
-        if b & 0x80 == 0 {
-            break;
+        loop {
+            if i >= lim {
+                return (res, usize::MAX);
+            }
+            let b = *ptr.add(i);
+            res |= ((b & 0x7F) as u64) << (i * 7);
+            i += 1;
+            if b & 0x80 == 0 {
+                break;
+            }
         }
-    }
 
-    (res, i)
-}}
+        (res, i)
+    }
+}
 
 #[cfg(test)]
 mod test {
