@@ -338,7 +338,7 @@ impl LogParser {
                     }
 
                     value_kind::SLICE_BOOL => {
-                        off = self.slice(ptr, off, NodeKind::Bool, key_len, key_off, 1);
+                        off = self.slice(ptr, off, NodeKind::Bools, key_len, key_off, 1);
                         self.ctx_size += 1;
                     }
 
