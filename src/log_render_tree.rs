@@ -375,7 +375,7 @@ impl<'a> LogRender<'a> {
     ) where
         T: slice_items::TreeLiteral,
     {
-        if len < 10 {
+        if len < 3 {
             dst.push(b':');
             dst.push(b' ');
             for i in 0..len as usize {
@@ -393,6 +393,10 @@ impl<'a> LogRender<'a> {
         dst.push(b'\n');
         for i in 0..len {
             self.render_tree_prefix(dst, (len - i - 1) as u32);
+            let s = self.itoa.format(i);
+            dst.extend_from_slice(s.as_bytes());
+            dst.push(b':');
+            dst.push(b' ');
             ptr = T::render(self, dst, ptr);
             dst.push(b'\n');
         }

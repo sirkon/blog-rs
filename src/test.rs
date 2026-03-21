@@ -10,14 +10,15 @@ mod test {
     #[test]
     fn showcase_for_log_parser_and_render() {
         let files = &[
-            // &"./src/testdata/message_only.bin",
-            // &"./src/testdata/message_short_flat_context.bin",
-            // &"./src/testdata/message_with_binary_in_ctx.bin",
-            // &"./src/testdata/message_with_loads_of_slices.bin",
+            &"./src/testdata/message_only.bin",
+            &"./src/testdata/message_short_flat_context.bin",
+            &"./src/testdata/message_with_binary_in_ctx.bin",
+            &"./src/testdata/message_with_loads_of_slices.bin",
             &"./src/testdata/group.bin",
-            // &"./src/testdata/errors.bin",
-            // &"./src/testdata/error_intmixed.bin",
-            // &"./src/testdata/error_foreign_root.bin",
+            &"./src/testdata/errors.bin",
+            &"./src/testdata/error_intmixed.bin",
+            &"./src/testdata/error_foreign_root.bin",
+            &"./src/testdata/panic.bin",
         ];
 
         for file in files {
