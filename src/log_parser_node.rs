@@ -37,13 +37,27 @@ impl Node {
     pub(crate) unsafe fn key_as_slice(&self, ptr: *const u8) -> &[u8] { unsafe {
         match self.kind {
             NodeKind::ErrLoc => {
-                let lock_key_index = PREDEFINED_NAME_LOCATION >> 8 - 1;
+                let lock_key_index = (PREDEFINED_NAME_LOCATION >> 8) - 1;
                 let key = PREDEFINED_KEYS[lock_key_index as usize];
                 return key.as_bytes();
             }
             _ => {}
         }
 
+        if self.key_len != 0 {
+            return slice::from_raw_parts(ptr.add(self.key_off as usize), self.key_len as usize);
+        }
+
+        if self.key_off >= PREDEFINED_KEYS.len() as u32 {
+            return "!unknown-key".as_bytes();
+        }
+
+        let key = PREDEFINED_KEYS[self.key_len as usize];
+        key.as_bytes()
+    }}
+
+    #[inline(always)]
+    pub(crate) unsafe fn key_as_slice_direct(&self, ptr: *const u8) -> &[u8] { unsafe {
         if self.key_len != 0 {
             return slice::from_raw_parts(ptr.add(self.key_off as usize), self.key_len as usize);
         }

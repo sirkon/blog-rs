@@ -1,8 +1,9 @@
+use crate::log_parser_node::Node;
+use crate::value_kind::{PREDEFINED_KEYS, ValueKind};
 use crate::{level, log_render};
 use memchr::Memchr;
 use std::io::Read;
 use std::slice;
-use crate::value_kind::{ValueKind, PREDEFINED_KEYS};
 
 pub struct LogRender<'a> {
     pub(crate) itoa:      itoa::Buffer,
@@ -11,6 +12,11 @@ pub struct LogRender<'a> {
     pub(crate) need_tree: bool,
     pub(crate) err_stack: Vec<(usize, usize)>,
     pub(crate) grp_stack: Vec<(usize, RenderGroupType)>,
+
+    pub(crate) tree_always: bool,
+    pub(crate) tree_stack:  Vec<(u64, isize)>,
+    pub(crate) tree_prefix: u64,
+    pub(crate) tree_depth:  isize,
 
     pub(crate) time:  u64,
     pub(crate) level: u8,
@@ -31,91 +37,103 @@ pub(crate) enum RenderGroupType {
 impl<'a> LogRender<'a> {
     pub fn new() -> Self {
         Self {
-            itoa:      itoa::Buffer::new(),
-            ryu:       ryu::Buffer::new(),
-            buf:       Vec::with_capacity(4096),
-            need_tree: false,
-            err_stack: Vec::with_capacity(8),
-            grp_stack: Vec::with_capacity(8),
-            time:      0,
-            level:     0,
-            loc:       None,
-            msg:       (0, 0),
-            ctx:       &[],
+            itoa:        itoa::Buffer::new(),
+            ryu:         ryu::Buffer::new(),
+            buf:         Vec::with_capacity(4096),
+            need_tree:   false,
+            err_stack:   Vec::with_capacity(16),
+            grp_stack:   Vec::with_capacity(16),
+            tree_always: false,
+            tree_stack:  Vec::with_capacity(16),
+            tree_prefix: 0,
+            tree_depth:  0,
+            time:        0,
+            level:       0,
+            loc:         None,
+            msg:         (0, 0),
+            ctx:         &[],
         }
     }
 
-    pub(crate) unsafe fn render(&mut self, dst: &mut Vec<u8>, src: &[u8]) { unsafe {
-        let ptr: *const u8 = src.as_ptr();
+    pub fn tree_only(&mut self) -> &mut Self {
+        self.tree_always = true;
+        self
+    }
 
-        self.render_time(dst, self.time as i64);
-        let is_panic = self.render_level(dst);
-        self.render_location(dst, ptr);
+    pub(crate) unsafe fn render(&mut self, dst: &mut Vec<u8>, src: &[u8]) {
+        unsafe {
+            let ptr: *const u8 = src.as_ptr();
 
-        if !is_panic {
+            self.render_time(dst, self.time as i64);
+            let is_panic = self.render_level(dst);
+            self.render_location(dst, ptr);
+
+            if !is_panic {
+                let (length, off) = self.msg;
+                dst.extend_from_slice(slice::from_raw_parts(ptr.add(off), length));
+                dst.push(b' ');
+
+                if self.need_tree || self.tree_always {
+                    self.render_tree(dst, src);
+                } else {
+                    self.render_json(dst, src);
+                }
+                return;
+            }
+
+            self.render_json(dst, src);
+            self.render_stacktrace(dst, src);
+        }
+    }
+
+    pub(crate) unsafe fn render_stacktrace(&mut self, dst: &mut Vec<u8>, src: &[u8]) {
+        unsafe {
+            let ptr: *const u8 = src.as_ptr();
             let (length, off) = self.msg;
-            println!("{} {}", off, length);
-            dst.extend_from_slice(slice::from_raw_parts(ptr.add(off), length));
-            dst.push(b' ');
+            let st = slice::from_raw_parts(ptr.add(off), length);
 
-            if self.need_tree {
-                self.render_tree(dst, src)
-            } else {
-                self.render_json(dst, src);
+            let mut decoder = flate2::read::GzDecoder::new(st);
+            self.buf.set_len(0);
+            match decoder.read_to_end(&mut self.buf) {
+                Ok(_) => {}
+                Err(x) => {
+                    self.buf.set_len(0);
+                    self.buf.extend_from_slice(x.to_string().as_bytes());
+                }
+            };
+            let mut start: usize = 0;
+            let haystack = self.buf.as_slice();
+            for pos in Memchr::new(b'\n', haystack) {
+                dst.extend_from_slice(b".... ");
+                dst.extend_from_slice(&haystack[start..pos]);
+                dst.push(b'\n');
+                start = pos + 1;
             }
-            return;
-        }
-
-        self.render_json(dst, src);
-        self.render_stacktrace(dst, src);
-    }}
-
-    pub(crate) unsafe fn render_tree(&mut self, _dst: &mut Vec<u8>, _src: &[u8]) {}
-
-    pub(crate) unsafe fn render_stacktrace(&mut self, dst: &mut Vec<u8>, src: &[u8]) { unsafe {
-        let ptr: *const u8 = src.as_ptr();
-        let (length, off) = self.msg;
-        let st = slice::from_raw_parts(ptr.add(off), length);
-
-        let mut decoder = flate2::read::GzDecoder::new(st);
-        self.buf.set_len(0);
-        match decoder.read_to_end(&mut self.buf) {
-            Ok(_) => {}
-            Err(x) => {
-                self.buf.set_len(0);
-                self.buf.extend_from_slice(x.to_string().as_bytes());
+            if start < haystack.len() {
+                dst.extend_from_slice(b".... ");
+                dst.extend_from_slice(&haystack[start..]);
+                dst.push(b'\n');
             }
-        };
-        let mut start: usize = 0;
-        let haystack = self.buf.as_slice();
-        for pos in Memchr::new(b'\n', haystack) {
-            dst.extend_from_slice(b".... ");
-            dst.extend_from_slice(&haystack[start..pos]);
-            dst.push(b'\n');
-            start = pos + 1;
         }
-        if start < haystack.len() {
-            dst.extend_from_slice(b".... ");
-            dst.extend_from_slice(&haystack[start..]);
-            dst.push(b'\n');
-        }
-    }}
+    }
 
     #[inline(always)]
-    pub(crate) unsafe fn render_location(&mut self, dst: &mut Vec<u8>, ptr: *const u8) { unsafe {
-        match self.loc {
-            Some((lenght, off, line)) => {
-                dst.push(b'(');
-                dst.extend_from_slice(slice::from_raw_parts(ptr.add(off), lenght));
-                dst.push(b':');
-                let lin = self.itoa.format(line);
-                dst.extend_from_slice(lin.as_bytes());
-                dst.push(b')');
-                dst.push(b' ');
+    pub(crate) unsafe fn render_location(&mut self, dst: &mut Vec<u8>, ptr: *const u8) {
+        unsafe {
+            match self.loc {
+                Some((lenght, off, line)) => {
+                    dst.push(b'(');
+                    dst.extend_from_slice(slice::from_raw_parts(ptr.add(off), lenght));
+                    dst.push(b':');
+                    let lin = self.itoa.format(line);
+                    dst.extend_from_slice(lin.as_bytes());
+                    dst.push(b')');
+                    dst.push(b' ');
+                }
+                _ => {}
             }
-            _ => {}
         }
-    }}
+    }
 
     #[inline(always)]
     pub(crate) fn render_level(&mut self, dst: &mut Vec<u8>) -> bool {
@@ -146,28 +164,26 @@ impl<'a> LogRender<'a> {
                 is_panic = true;
                 dst.extend_from_slice(b" PANIC");
             }
-            _ => {
-                match self.level {
-                    0..10 => {
-                        dst.extend_from_slice(b"   ");
-                        dst.push(b'!');
-                        dst.push('0' as u8 + self.level);
-                    }
-                    10..100 => {
-                        dst.extend_from_slice(b"  ");
-                        dst.push(b'!');
-                        dst.push(b'0' as u8 + self.level / 10);
-                        dst.push(b'0' as u8 + self.level % 10);
-                    }
-                    100..=255 => {
-                        dst.extend_from_slice(b" ");
-                        dst.push(b'!');
-                        dst.push(b'0' as u8 + self.level / 100);
-                        dst.push(b'0' as u8 + (self.level % 100) / 10);
-                        dst.push(b'0' as u8 + self.level % 10);
-                    }
+            _ => match self.level {
+                0..10 => {
+                    dst.extend_from_slice(b"   ");
+                    dst.push(b'!');
+                    dst.push('0' as u8 + self.level);
                 }
-            }
+                10..100 => {
+                    dst.extend_from_slice(b"  ");
+                    dst.push(b'!');
+                    dst.push(b'0' as u8 + self.level / 10);
+                    dst.push(b'0' as u8 + self.level % 10);
+                }
+                100..=255 => {
+                    dst.extend_from_slice(b" ");
+                    dst.push(b'!');
+                    dst.push(b'0' as u8 + self.level / 100);
+                    dst.push(b'0' as u8 + (self.level % 100) / 10);
+                    dst.push(b'0' as u8 + self.level % 10);
+                }
+            },
         }
 
         dst.push(b' ');
@@ -313,14 +329,12 @@ impl<'a> LogRender<'a> {
     }
 }
 
-
-
 pub(crate) fn predefined_key<'a>(key: ValueKind) -> &'a [u8] {
     if key < 255 as ValueKind {
         return "!invalid-predefined-key".as_bytes();
     }
 
-    let index = key >> 8 - 1;
+    let index = (key >> 8) - 1;
     if index >= PREDEFINED_KEYS.len() as ValueKind {
         return "!unknown-predefined-key".as_bytes();
     }
@@ -338,7 +352,7 @@ mod test {
         let v = 1_234_567_890_101_121u64;
 
         let mut r = LogRender::new();
-        let mut out : Vec<u8> = Vec::new();
+        let mut out: Vec<u8> = Vec::new();
         r.render_go_duration(&mut out, v);
 
         assert_eq!(out, b"342h56m7.890101121s");
@@ -349,7 +363,7 @@ mod test {
         let t = 1773974798041168000i64;
 
         let mut r = LogRender::new();
-        let mut out : Vec<u8> = Vec::new();
+        let mut out: Vec<u8> = Vec::new();
         r.render_time(&mut out, t);
 
         assert_eq!(out, b"2026-03-20 02:46:38.041168");

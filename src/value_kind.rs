@@ -64,57 +64,63 @@ pub const PREDEFINED_NAME_LOCATION: ValueKind = 3 << 8;
 
 pub fn string(k: ValueKind) -> String {
     match k & 0xFF {
-        1 => "error.New".to_string(),
-        2 => "error.Wrap".to_string(),
-        3 => "error.Wrap(over foreign)".to_string(),
-        4 => "error.Ctx".to_string(),
-        5 => "errors.Ctx(over foreign)".to_string(),
-        6 => "location".to_string(),
-        7 => "foreign error text".to_string(),
-        8 => "foreign error format".to_string(),
-        10 => "errors.Ctx(phantom)".to_string(),
-        32 => "bool".to_string(),
-        33 => "time.UnixNano".to_string(),
-        34 => "time.Duration".to_string(),
-        35 => "int".to_string(),
-        36 => "int8".to_string(),
-        37 => "int16".to_string(),
-        38 => "int32".to_string(),
-        39 => "int64".to_string(),
-        40 => "uint".to_string(),
-        41 => "uint8".to_string(),
-        42 => "uint16".to_string(),
-        43 => "uint32".to_string(),
-        44 => "uint64".to_string(),
-        45 => "float32".to_string(),
-        46 => "float64".to_string(),
-        47 => "string".to_string(),
-        48 => "[]byte".to_string(),
-        49 => "error".to_string(),
-        64 => "beer.Error".to_string(),
-        65 => "ForeignWrap(beef.Error)".to_string(),
-        66 => "blog.Group".to_string(),
-        70 => "[]bool".to_string(),
-        71 => "[]int".to_string(),
-        72 => "[]int8".to_string(),
-        73 => "[]int16".to_string(),
-        74 => "[]int32".to_string(),
-        75 => "[]int64".to_string(),
-        76 => "[]uint".to_string(),
-        77 => "[]uint8".to_string(),
-        78 => "[]uint16".to_string(),
-        79 => "[]uint32".to_string(),
-        80 => "[]uint64".to_string(),
-        81 => "[]float32".to_string(),
-        82 => "[]float64".to_string(),
-        83 => "[]string".to_string(),
+        NEW_NODE => "error.New".to_string(),
+        WRAP_NODE => "error.Wrap".to_string(),
+        WRAP_INHERITED_NODE => "error.Wrap(over foreign)".to_string(),
+        JUST_CONTEXT_NODE => "error.Ctx".to_string(),
+        JUST_CONTEXT_INHERITED_NODE => "error.Ctx(over foreign)".to_string(),
+        LOCATION_NODE => "location".to_string(),
+        FOREIGN_ERROR_TEXT => "error.(foreign text)".to_string(),
+        FOREIGN_ERROR_FORMAT => "error.(foreign format)".to_string(),
+        PHANTOM_CONTEXT_NODE => "errors.Ctx(phantom)".to_string(),
+        BOOL => "bool".to_string(),
+        TIME => "time.UnixNano".to_string(),
+        DURATION => "time.Duration".to_string(),
+        I => "int".to_string(),
+        I8 => "int8".to_string(),
+        I16 => "int16".to_string(),
+        I32 => "int32".to_string(),
+        I64 => "int64".to_string(),
+        U => "uint".to_string(),
+        U8 => "uint8".to_string(),
+        U16 => "uint16".to_string(),
+        U32 => "uint32".to_string(),
+        U64 => "uint64".to_string(),
+        FLOAT32 => "float32".to_string(),
+        FLOAT64 => "float64".to_string(),
+        STRING => "string".to_string(),
+        BYTES => "[]byte".to_string(),
+        ERROR_RAW => "error".to_string(),
+        ERROR => "beer.Error".to_string(),
+        ERROR_EMBED => "error.Intermixed".to_string(),
+        GROUP => "blog.Group".to_string(),
+        SLICE_BOOL => "[]bool".to_string(),
+        SLICE_I => "[]int".to_string(),
+        SLICE_I8 => "[]int8".to_string(),
+        SLICE_I16 => "[]int16".to_string(),
+        SLICE_I32 => "[]int32".to_string(),
+        SLICE_I64 => "[]int64".to_string(),
+        SLICE_U => "[]uint".to_string(),
+        SLICE_U8 => "[]uint8".to_string(),
+        SLICE_U16 => "[]uint16".to_string(),
+        SLICE_U32 => "[]uint32".to_string(),
+        SLICE_U64 => "[]uint64".to_string(),
+        SLICE_F32 => "[]float32".to_string(),
+        SLICE_F64 => "[]float64".to_string(),
+        SLICE_STRING => "[]string".to_string(),
         _ => {
             // Probably a predefined thing?
-            let index = k >> 8;
-            if index <= PREDEFINED_KEYS.len() as ValueKind {
-                return PREDEFINED_KEYS[(index - 1) as usize].to_string();
+            if k >> 8 > 0 {
+                let index = k >> 8;
+                if index <= PREDEFINED_KEYS.len() as ValueKind {
+                    let res = PREDEFINED_KEYS[(index - 1) as usize].to_string();
+                    let rem = k << 56 >> 56;
+                    if k << 56 >> 56 != 0 {
+                        return res + ":" + string(rem).as_str();
+                    }
+                }
             }
-            return format!("spec-kind-unknown[{}]", k);
+            format!("value-kind-unknown[{}]", k)
         }
     }
 }
@@ -153,13 +159,20 @@ mod tests {
         assert_eq!(string(SLICE_U8), "[]uint8");
 
         // Test unknown
-        assert_eq!(string(999), "spec-kind-unknown[999]");
+        assert_eq!(string(254), "value-kind-unknown[254]");
+        assert_eq!(string(999), "@location:value-kind-unknown[231]");
     }
 
     #[test]
     fn test_predefined() {
         let location_kind = PREDEFINED_NAME_LOCATION; // index 0
         assert_eq!(string(location_kind), "@location");
+
+        let location_kind = PREDEFINED_NAME_CONTEXT;
+        assert_eq!(string(location_kind), "@context");
+
+        let location_kind = PREDEFINED_NAME_TEXT;
+        assert_eq!(string(location_kind), "@text");
     }
 
     #[test]

@@ -1,14 +1,17 @@
 use super::*;
-use crate::log_parser::{LogParser, read_uvarint, read_uvarint_safe};
+use crate::log_parser::{CtxParsingState, LogParser, read_uvarint, read_uvarint_safe};
 use crate::log_parser_node::NodeKind;
 use std::slice;
 
 impl LogParser {
-    // Parser input source as a log record and returns the rest of data.
+    /// Parse input source as a log record and returns:
+    ///
+    ///  1. Log record data of the first record in the data provided striped from the header.
+    ///  2. The data after that first record. A tail.
     pub(crate) unsafe fn parse_log_data<'a>(
         &mut self,
         src: &'a [u8],
-    ) -> Result<&'a [u8], log_parser::ErrorLogParse> {
+    ) -> Result<(&'a [u8], &'a [u8]), log_parser::ErrorLogParse> {
         unsafe {
             if src.len() < 5 {
                 return Err(log_parser::ErrorLogParse::NoHeader);
@@ -31,7 +34,6 @@ impl LogParser {
                 return Err(log_parser::ErrorLogParse::RecordNeedMore);
             }
             let off = 5 + size;
-            self.source_off = off;
             let record = slice::from_raw_parts(ptr.add(off), length as usize);
             let check = crc32c::crc32c(record);
             if check != record_crc {
@@ -43,7 +45,7 @@ impl LogParser {
                 ptr.add(off + length as usize),
                 src.len() - off - length as usize,
             );
-            Ok(rest)
+            Ok((record, rest))
         }
     }
 
@@ -88,33 +90,31 @@ impl LogParser {
             self.msg = (msg_length as usize, off + size);
             off += size + msg_length as usize;
 
-            self.parse_ctx(slice::from_raw_parts_mut(ptr.add(off), src.len() - off));
+            self.parse_ctx(ptr, off, src.len());
 
             Ok(())
         }
     }
 
-    pub(crate) unsafe fn parse_ctx<'a>(&mut self, src: &'a [u8]) {
+    pub(crate) unsafe fn parse_ctx<'a>(&mut self, ptr: *const u8, mut off: usize, mut cap: usize) {
         unsafe {
             self.ctx.reset();
-            self.groups_lens.set_len(0);
-            self.caps.set_len(0);
-            self.err_frags.set_len(0);
-            self.state_stack.set_len(0);
+            self.groups_lens.clear();
+            self.caps.clear();
+            self.err_frags.clear();
+            self.state_stack.clear();
             self.ctx_size = 0;
             self.has_errors = false;
 
-            let mut off: usize = 0;
             let _need_tree: bool = false;
-            let ptr = src.as_ptr() as *mut u8;
-            let mut had_stages = false;
-            let mut cap = src.len();
+            let mut on_error_stage = false;
             let mut parsing_state = log_parser::CtxParsingState::Normal;
             let mut group_cap: usize = 0;
             let mut group_off: usize = 0;
             loop {
+                self.group_depth = self.ctx.stack.len();
                 match parsing_state {
-                    log_parser::CtxParsingState::Normal => {
+                    CtxParsingState::Normal => {
                         if off >= cap {
                             if self.caps.is_empty() {
                                 return;
@@ -122,19 +122,21 @@ impl LogParser {
                         }
                     }
 
-                    log_parser::CtxParsingState::Group => {
-                        if group_off >= group_cap {
+                    CtxParsingState::Group => {
+                        if group_off > group_cap {
                             self.ctx.leave_group();
-                            if !self.groups_lens.is_empty() {
+                            if self.state_stack.is_empty() {
+                                return;
+                            }
+                            parsing_state = self.state_stack.pop().unwrap();
+                            if parsing_state == CtxParsingState::Group {
                                 (group_off, group_cap) = self.groups_lens.pop().unwrap();
                                 continue;
-                            } else {
-                                parsing_state = self.state_stack.pop().unwrap();
                             }
                         }
                     }
 
-                    log_parser::CtxParsingState::Error => {
+                    CtxParsingState::Error | CtxParsingState::ErrorEmbed => {
                         if off >= cap {
                             self.ctx.leave_group(); // Leave context group which is here.
                             self.ctx.leave_group(); // Leave error itself.
@@ -143,18 +145,7 @@ impl LogParser {
                             }
                             cap = self.caps.pop().unwrap();
                             parsing_state = self.state_stack.pop().unwrap();
-                        }
-                    }
-
-                    log_parser::CtxParsingState::ErrorEmbed => {
-                        if off >= cap {
-                            self.ctx.leave_group();
-                            self.ctx.leave_group();
-                            if self.caps.is_empty() {
-                                return;
-                            }
-                            cap = self.caps.pop().unwrap();
-                            parsing_state = self.state_stack.pop().unwrap();
+                            continue;
                         }
                     }
                 }
@@ -164,7 +155,7 @@ impl LogParser {
                 off += 1;
                 match kind {
                     value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
-                        had_stages = self.leave_stage_group_if_needed(had_stages);
+                        on_error_stage = self.leave_stage_group_if_needed(on_error_stage);
                         self.ctx.add(NodeKind::ErrorStageCtx, 0, 0, 0, 0);
                         self.ctx.enter_group();
                         continue;
@@ -194,29 +185,15 @@ impl LogParser {
 
                 match kind {
                     value_kind::NEW_NODE => {
-                        had_stages = self.leave_stage_group_if_needed(had_stages);
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        self.ctx.add(
-                            NodeKind::ErrorStageNew,
-                            key_len,
-                            key_off,
-                            length as u32,
-                            (off + size) as u32,
-                        );
-                        off += size + length as usize;
+                        on_error_stage = self.leave_stage_group_if_needed(on_error_stage);
+                        self.ctx
+                            .add(NodeKind::ErrorStageNew, key_len, key_off, 0, 0);
                         self.ctx.enter_group();
                     }
                     value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
-                        had_stages = self.leave_stage_group_if_needed(had_stages);
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        self.ctx.add(
-                            NodeKind::ErrorStageWrap,
-                            key_len,
-                            key_off,
-                            length as u32,
-                            (off + size) as u32,
-                        );
-                        off += size + length as usize;
+                        on_error_stage = self.leave_stage_group_if_needed(on_error_stage);
+                        self.ctx
+                            .add(NodeKind::ErrorStageWrap, key_len, key_off, 0, 0);
                         self.ctx.enter_group();
                     }
                     value_kind::LOCATION_NODE => {
@@ -355,6 +332,11 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
+                    value_kind::ERROR_RAW => {
+                        off = self.varthing(ptr, off, NodeKind::ErrTxt, key_len, key_off);
+                        self.ctx_size += 1;
+                    }
+
                     value_kind::SLICE_BOOL => {
                         off = self.slice(ptr, off, NodeKind::Bool, key_len, key_off, 1);
                         self.ctx_size += 1;
@@ -445,37 +427,48 @@ impl LogParser {
                         off += size;
                         self.caps.push(cap);
                         self.state_stack.push(parsing_state);
-                        parsing_state = log_parser::CtxParsingState::Error;
                         cap = off + lenght as usize;
+                        parsing_state = CtxParsingState::Error;
                         self.ctx_size += 1;
                         self.has_errors = true;
+                        on_error_stage = false
                     }
 
                     value_kind::ERROR_EMBED => {
                         self.ctx.add(NodeKind::ErrorEmbed, key_len, key_off, 0, 0);
                         self.ctx.enter_group();
+
+                        // extract a frame of the embedded error text.
                         let (lenght, size) = read_uvarint(ptr.add(off));
                         off += size;
                         self.ctx
                             .add(NodeKind::ErrEmbedText, 0, 0, lenght as u32, off as u32);
                         self.caps.push(cap);
                         self.state_stack.push(parsing_state);
-                        off = off + lenght as usize;
-                        let (lenght, size) = read_uvarint(ptr.add(off));
-                        cap = off + size + lenght as usize;
+                        off += lenght as usize;
+
+                        // Now, to the payload!
+                        let (length, size) = read_uvarint(ptr.add(off));
+                        cap = off + size + length as usize;
+                        off += size;
+                        parsing_state = CtxParsingState::ErrorEmbed;
                         self.ctx_size += 1;
                         self.has_errors = true;
+                        on_error_stage = false;
                     }
 
                     value_kind::GROUP => {
                         self.ctx.add(NodeKind::Group, key_len, key_off, 0, 0);
+                        self.ctx.enter_group();
                         let (lenght, size) = read_uvarint(ptr.add(off));
                         off += size;
-                        self.groups_lens.push((group_off, group_cap));
+                        if parsing_state == CtxParsingState::Group {
+                            self.groups_lens.push((group_off, group_cap));
+                        }
                         self.state_stack.push(parsing_state);
                         group_off = 0;
                         group_cap = lenght as usize;
-                        parsing_state = log_parser::CtxParsingState::Group;
+                        parsing_state = CtxParsingState::Group;
                         self.ctx_size += 1;
                     }
 
