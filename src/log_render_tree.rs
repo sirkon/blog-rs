@@ -3,7 +3,7 @@ use crate::log_render::{LogRender, RenderGroupType};
 use crate::log_render_tree_prefixes::render_tree_prefix;
 use crate::slice_items::LiteralString;
 use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
-use crate::{log_parser, log_render, slice_items};
+use crate::{log_render, slice_items};
 use std::slice;
 
 const TREE_ITEM_INTR: &'static [u8; 7] = b"\xE2\x94\x9C\xE2\x94\x80 ";
@@ -21,7 +21,6 @@ impl<'a> LogRender<'a> {
             let node_ptr = self.ctx.as_ptr();
             let ptr = src.as_ptr();
             let mut pos = 0 as usize;
-            let mut old = false;
             let mut is_embed_err = false;
             let mut embed_err_text = (0 as usize, 0 as usize);
             let mut render_state = RenderGroupType::Root;
@@ -241,7 +240,6 @@ impl<'a> LogRender<'a> {
                             self.grp_stack.push((pos, render_state));
                             render_state = RenderGroupType::Group;
                             dst.push(b'\n');
-                            old = false;
                             pos = node.child as usize;
                             continue; // ???
                         } else {
@@ -265,7 +263,6 @@ impl<'a> LogRender<'a> {
                             ));
                             dst.push(b'\n');
                             self.tree_push_prefix(1);
-                            old = false;
                             pos = node.child as usize;
                             continue;
                         } else {
@@ -289,7 +286,6 @@ impl<'a> LogRender<'a> {
                             ));
                             dst.push(b'\n');
                             self.tree_push_prefix(1);
-                            old = false;
                             pos = node.child as usize;
                             continue;
                         } else {
@@ -306,7 +302,6 @@ impl<'a> LogRender<'a> {
                             self.grp_stack.push((pos, render_state));
                             render_state = RenderGroupType::ErrorStage;
                             dst.push(b'\n');
-                            old = false;
                             pos = node.child as usize;
                             if node.kind != NodeKind::ErrorStageCtx {
                                 self.err_stack
@@ -374,8 +369,8 @@ impl<'a> LogRender<'a> {
         next: u32,
     ) where
         T: slice_items::TreeLiteral,
-    {
-        if len < 3 {
+    { unsafe {
+        if len < self.expand_array_since {
             dst.push(b':');
             dst.push(b' ');
             for i in 0..len as usize {
@@ -401,7 +396,7 @@ impl<'a> LogRender<'a> {
             dst.push(b'\n');
         }
         self.tree_depth -= 1;
-    }
+    }}
 
     #[inline(always)]
     unsafe fn render_tree_prefix(&self, dst: &mut Vec<u8>, next: u32) {

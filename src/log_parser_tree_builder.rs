@@ -1,4 +1,3 @@
-use std::slice;
 use crate::log_parser_node::{Node, NodeKind};
 
 /// blog context structure builder type.
@@ -100,18 +99,6 @@ impl TreeBuilder {
             }
         }
     }
-
-    /// Превращает билд в готовое дерево (Zero-copy ссылки)
-    pub(crate) unsafe fn finish<'a>(&'a self) -> Tree<'a> {
-        let res: &[u8] = unsafe {
-            let ptr = self.ctrl.as_ptr();
-            slice::from_raw_parts(ptr, self.off)
-        };
-        Tree {
-            ctrl: res,
-            tree: true,
-        }
-    }
 }
 
 // Shows collected data as a dump.
@@ -157,10 +144,4 @@ pub(crate) unsafe fn show(ptr: *const u8) {
             }
         }
     }
-}
-
-/// [Tree] represents a logical tree layout in a continuous memory area.
-pub(crate) struct Tree<'a> {
-    ctrl: &'a [u8],
-    tree: bool,
 }

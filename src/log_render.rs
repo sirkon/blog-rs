@@ -1,9 +1,9 @@
-use crate::log_parser_node::Node;
 use crate::value_kind::{PREDEFINED_KEYS, ValueKind};
-use crate::{level, log_render};
+use crate::level;
 use memchr::Memchr;
 use std::io::Read;
 use std::slice;
+use jiff::Timestamp;
 
 pub struct LogRender<'a> {
     pub(crate) itoa:      itoa::Buffer,
@@ -17,6 +17,9 @@ pub struct LogRender<'a> {
     pub(crate) tree_stack:  Vec<(u64, isize)>,
     pub(crate) tree_prefix: u64,
     pub(crate) tree_depth:  isize,
+
+    pub(crate) expand_array_since: usize,
+    pub(crate) expand_context_since: usize,
 
     pub(crate) time:  u64,
     pub(crate) level: u8,
@@ -47,6 +50,8 @@ impl<'a> LogRender<'a> {
             tree_stack:  Vec::with_capacity(16),
             tree_prefix: 0,
             tree_depth:  0,
+            expand_array_since: 8,
+            expand_context_since: 6,
             time:        0,
             level:       0,
             loc:         None,
@@ -55,8 +60,21 @@ impl<'a> LogRender<'a> {
         }
     }
 
+    /// Forces tree view.
     pub fn tree_only(&mut self) -> &mut Self {
         self.tree_always = true;
+        self
+    }
+
+    // Sets an amount of context elements to show as tree after reaching this value.
+    pub fn show_as_tree_since(&mut self, size: usize) -> &mut Self {
+        self.expand_context_since = size;
+        self
+    }
+
+    // Sets an array length to show in expanded form since it reaches this value.
+    pub fn show_arrays_as_tree_since_size(&mut self, size: usize) -> &mut Self {
+        self.expand_array_since = size;
         self
     }
 
@@ -276,58 +294,74 @@ impl<'a> LogRender<'a> {
 
     /// TODO: replace on something functional, with timezones and so on.
     #[inline(always)]
-    pub(crate) fn render_time(&mut self, dst: &mut Vec<u8>, unix_nanos: i64) {
-        let secs = unix_nanos / 1_000_000_000;
-        let nanos = unix_nanos % 1_000_000_000;
+    pub(crate) fn render_time(&mut self, dst: &mut Vec<u8>, nanos: i64) {
+        let secs = nanos / 1_000_000_000;
+        let nsecs = (nanos % 1_000_000_000) as i32;
 
-        // Математика эпохи (UTC)
-        let z = (secs / 86400) + 719468;
-        let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-        let doe = (z - era * 146097) as u32;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = (yoe as i32) + (era as i32 * 400);
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let year = y + (if m <= 2 { 1 } else { 0 });
+        // Создаём Timestamp из секунд и наносекунд
+        let ts = match Timestamp::new(secs, nsecs) {
+            Ok(ts) => ts,
+            _ => {
+                dst.extend_from_slice(b"????-??-?? ??:??:??.???");
+                return;
+            },
+        };
 
-        let h = (secs / 3600) % 24;
-        let min = (secs / 60) % 60;
-        let s = secs % 60;
+        // Конвертируем в локальный часовой пояс
+        let zoned = ts.to_zoned(jiff::tz::TimeZone::system());
 
-        // Пишем в буфер "вручную" (без парсинга формат-строки)
-        // ГГГГ-ММ-ДД ЧЧ:ММ:СС.нннннн
-        let start = dst.len();
-        dst.extend_from_slice(b"0000-00-00 00:00:00");
-        let b = &mut dst[start..];
+        // Получаем компоненты
+        let year = zoned.year();
+        let month = zoned.month();
+        let day = zoned.day();
+        let hour = zoned.hour();
+        let minute = zoned.minute();
+        let second = zoned.second();
+        let millisecond = zoned.millisecond(); // миллисекунды 0-999
 
-        // Быстрая запись чисел (можно еще быстрее через lookup-таблицу на 100 байт)
-        fn u2(b: &mut [u8], v: i64) {
-            b[0] = b'0' + (v / 10 % 10) as u8;
-            b[1] = b'0' + (v % 10) as u8;
+        // Форматируем через itoa
+        dst.extend_from_slice(self.itoa.format(year).as_bytes());
+        dst.push(b'-');
+
+        if month < 10 {
+            dst.push(b'0');
         }
+        dst.extend_from_slice(self.itoa.format(month).as_bytes());
+        dst.push(b'-');
 
-        // Год
-        let y_u = year as i64;
-        u2(&mut b[0..2], y_u / 100);
-        u2(&mut b[2..4], y_u);
-        // Остальное
-        u2(&mut b[5..7], m as i64);
-        u2(&mut b[8..10], d as i64);
-        u2(&mut b[11..13], h);
-        u2(&mut b[14..16], min);
-        u2(&mut b[17..19], s);
+        if day < 10 {
+            dst.push(b'0');
+        }
+        dst.extend_from_slice(self.itoa.format(day).as_bytes());
+        dst.push(b' ');
 
-        // Наносекунды (микро)
-        let mic = nanos / 1000 + 1_000_000;
-        let s = self.itoa.format(mic);
-        let rs = &s.as_bytes()[1..];
+        if hour < 10 {
+            dst.push(b'0');
+        }
+        dst.extend_from_slice(self.itoa.format(hour).as_bytes());
+        dst.push(b':');
+
+        if minute < 10 {
+            dst.push(b'0');
+        }
+        dst.extend_from_slice(self.itoa.format(minute).as_bytes());
+        dst.push(b':');
+
+        if second < 10 {
+            dst.push(b'0');
+        }
+        dst.extend_from_slice(self.itoa.format(second).as_bytes());
+
+        // Миллисекунды с ведущими нулями (3 знака)
         dst.push(b'.');
-        dst.extend_from_slice(rs);
-        // u2(&mut b[20..23], mic / 1000);
-    }
-}
+        if millisecond < 100 {
+            dst.push(b'0');
+            if millisecond < 10 {
+                dst.push(b'0');
+            }
+        }
+        dst.extend_from_slice(self.itoa.format(millisecond).as_bytes());
+    }}
 
 pub(crate) fn predefined_key<'a>(key: ValueKind) -> &'a [u8] {
     if key < 255 as ValueKind {
@@ -366,6 +400,6 @@ mod test {
         let mut out: Vec<u8> = Vec::new();
         r.render_time(&mut out, t);
 
-        assert_eq!(out, b"2026-03-20 02:46:38.041168");
+        assert_eq!(out, b"2026-03-20 05:46:38.041");
     }
 }

@@ -4,7 +4,6 @@
 use crate::log_parser_node::NodeKind;
 use crate::log_parser_tree_builder::TreeBuilder;
 use crate::log_render::LogRender;
-use serde::Serialize;
 
 pub struct LogParser {
     pub(crate) max_log_size:        usize,
@@ -14,7 +13,6 @@ pub struct LogParser {
     pub(crate) state_stack:         Vec<CtxParsingState>,
     pub(crate) ctx_size:            usize,
     pub(crate) has_errors:          bool,
-    pub(crate) use_tree_since:      usize,
     pub(crate) process_since_level: u8,
     pub(crate) group_depth:         usize,
 
@@ -71,7 +69,6 @@ impl LogParser {
             state_stack:         Vec::with_capacity(8),
             ctx_size:            0,
             has_errors:          false,
-            use_tree_since:      10,
             process_since_level: 0,
             group_depth:         0,
 
@@ -87,8 +84,8 @@ impl LogParser {
     where
         'a: 'b,
     {
-        dst.need_tree =
-            (self.ctx_size >= self.use_tree_since || self.has_errors) && self.group_depth <= 8;
+        dst.need_tree = (self.ctx_size >= dst.expand_context_since || self.has_errors)
+            && self.group_depth <= 16;
         dst.time = self.time;
         dst.level = self.level;
         dst.loc = self.location;
@@ -103,11 +100,6 @@ impl LogParser {
 
     pub(crate) fn with_max_log_record_size(&mut self, size: usize) -> &mut Self {
         self.max_log_size = size;
-        self
-    }
-
-    pub(crate) fn with_show_tree_after(&mut self, size: usize) -> &mut Self {
-        self.use_tree_since = size;
         self
     }
 

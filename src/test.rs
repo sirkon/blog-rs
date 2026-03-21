@@ -1,4 +1,3 @@
-use super::*;
 
 #[cfg(test)]
 mod test {
@@ -34,8 +33,7 @@ mod test {
 
         unsafe {
             let mut render = LogRender::new();
-            render.tree_only();
-            let (record, rdata)=parser.parse_log_data(rdata).unwrap();
+            let (record, _)=parser.parse_log_data(rdata).unwrap();
             parser.make_record(&mut render);
 
             let mut dst: Vec<u8> = Vec::new();

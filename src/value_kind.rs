@@ -118,6 +118,7 @@ pub fn string(k: ValueKind) -> String {
                     if k << 56 >> 56 != 0 {
                         return res + ":" + string(rem).as_str();
                     }
+                    return res;
                 }
             }
             format!("value-kind-unknown[{}]", k)

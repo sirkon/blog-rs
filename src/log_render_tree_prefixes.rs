@@ -313,22 +313,22 @@ mod test {
             },
         ];
 
-        let mut tmpName = String::new();
+        let mut tmp_name = String::new();
         for t in &tests {
             let depth = t.stack.len();
             let name: &str = match depth {
                 0 => "empty",
                 _ => {
-                    tmpName = format!("{}", depth);
+                    tmp_name = format!("{}", depth);
                     for b in t.stack.iter() {
-                        tmpName += ".";
+                        tmp_name += ".";
                         if *b {
-                            tmpName += "1"
+                            tmp_name += "1"
                         } else {
-                            tmpName += "0"
+                            tmp_name += "0"
                         }
                     };
-                    tmpName.as_str()
+                    tmp_name.as_str()
                 }
             };
 

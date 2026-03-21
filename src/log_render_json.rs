@@ -1,10 +1,9 @@
-use crate::log_parser::read_uvarint;
 use crate::log_parser_node::Node;
 use crate::log_parser_node::NodeKind;
 use crate::log_render::{LogRender, RenderGroupType};
 use crate::slice_items;
 use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
-use crate::{log_parser, log_render};
+use crate::log_render;
 use std::slice;
 
 impl<'a> LogRender<'a> {
@@ -341,7 +340,7 @@ impl<'a> LogRender<'a> {
     unsafe fn render_json_slice<T>(&mut self, dst: &mut Vec<u8>, mut ptr: *const u8, len: usize)
     where
         T: slice_items::JSONLiteral,
-    {
+    { unsafe {
         dst.push(b'[');
         for i in 0..len as usize {
             if i > 0 {
@@ -351,7 +350,7 @@ impl<'a> LogRender<'a> {
             ptr = T::render(self, dst, ptr);
         }
         dst.push(b']');
-    }
+    }}
 }
 
 #[inline(always)]
