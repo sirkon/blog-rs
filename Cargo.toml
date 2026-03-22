@@ -1,3 +1,6 @@
+[lib]
+path = "src/mod.rs"
+
 [package]
 name = "blog"
 version = "0.1.0"

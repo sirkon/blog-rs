@@ -1,3 +1,4 @@
+use super::*;
 use crate::log_parser_node::{Node, NodeKind};
 use crate::log_render::{LogRender, RenderGroupType};
 use crate::log_render_tree_prefixes::render_tree_prefix;
@@ -41,32 +42,49 @@ impl<'a> LogRender<'a> {
                         }
                     }
                     _ => {
+                        self.color_link(dst);
                         self.render_tree_prefix(dst, node.next);
+                        self.color_reset(dst);
 
                         match node.kind {
                             NodeKind::ErrorStageNew => {
+                                self.color_err_stage(dst);
                                 dst.extend_from_slice(b"NEW: ");
                                 dst.extend_from_slice(node.key_as_slice(ptr));
                                 self.tree_push_prefix(node.next);
+                                self.color_reset(dst);
                             }
                             NodeKind::ErrorStageWrap => {
+                                self.color_err_stage(dst);
                                 dst.extend_from_slice(b"WRAP: ");
                                 dst.extend_from_slice(node.key_as_slice(ptr));
                                 self.tree_push_prefix(node.next);
+                                self.color_reset(dst);
                             }
                             NodeKind::ErrorStageCtx => {
+                                self.color_err_stage(dst);
                                 dst.extend_from_slice(b"CTX");
                                 self.tree_push_prefix(node.next);
+                                self.color_reset(dst);
                             }
                             NodeKind::Group => {
+                                self.color_key(dst);
                                 dst.extend_from_slice(node.key_as_slice(ptr));
                                 self.tree_push_prefix(node.next);
+                                self.color_reset(dst);
+                                self.color_reset(dst);
+                            }
+                            NodeKind::Error | NodeKind::ErrorEmbed | NodeKind::ErrTxt => {
+                                self.color_err_key(dst);
+                                dst.extend_from_slice(node.key_as_slice(ptr));
+                                self.color_reset(dst);
                             }
                             _ => {
+                                self.color_key(dst);
                                 dst.extend_from_slice(node.key_as_slice(ptr));
+                                self.color_reset(dst);
                             }
                         }
-
                     }
                 }
 
@@ -84,13 +102,13 @@ impl<'a> LogRender<'a> {
                     NodeKind::Time => {
                         dst.push(b':');
                         dst.push(b' ');
-                        self.render_time(dst, node.val_as_u64() as i64);
+                        self.render_time(dst, node.val_as_u64() as i64, true);
                         dst.push(b'\n');
                     }
                     NodeKind::Dur => {
                         dst.push(b':');
                         dst.push(b' ');
-                        self.render_go_duration(dst, node.val_as_u64());
+                        self.render_go_duration(dst, node.val_as_u64(), true);
                         dst.push(b'\n');
                     }
                     NodeKind::Int => {
@@ -188,9 +206,11 @@ impl<'a> LogRender<'a> {
                     NodeKind::ErrLoc => {
                         dst.push(b':');
                         dst.push(b' ');
+                        self.color_loc(dst);
                         dst.extend_from_slice(node.key_as_slice_direct(ptr));
                         dst.push(b':');
                         self.render_uint(dst, node.val_off as u64);
+                        self.color_reset(dst);
                         dst.push(b'\n');
                     }
                     NodeKind::ErrEmbedText => {}
@@ -258,9 +278,11 @@ impl<'a> LogRender<'a> {
                             render_state = RenderGroupType::Error;
                             dst.push(b'\n');
                             self.render_tree_prefix(dst, 1);
+                            self.color_err_meta(dst);
                             dst.extend_from_slice(log_render::predefined_key(
                                 PREDEFINED_NAME_CONTEXT,
                             ));
+                            self.color_reset(dst);
                             dst.push(b'\n');
                             self.tree_push_prefix(1);
                             pos = node.child as usize;
@@ -281,9 +303,11 @@ impl<'a> LogRender<'a> {
                             render_state = RenderGroupType::ErrorEmbed;
                             dst.push(b'\n');
                             self.render_tree_prefix(dst, 1);
+                            self.color_err_meta(dst);
                             dst.extend_from_slice(log_render::predefined_key(
                                 PREDEFINED_NAME_CONTEXT,
                             ));
+                            self.color_reset(dst);
                             dst.push(b'\n');
                             self.tree_push_prefix(1);
                             pos = node.child as usize;
@@ -327,9 +351,11 @@ impl<'a> LogRender<'a> {
                     match render_state {
                         RenderGroupType::Error => {
                             self.render_tree_prefix(dst, node.next);
+                            self.color_err_key(dst);
                             dst.extend_from_slice(log_render::predefined_key(PREDEFINED_NAME_TEXT));
                             dst.push(b':');
                             dst.push(b' ');
+                            self.color_level_error(dst);
                             for (i, (len, off)) in self.err_stack.iter().rev().enumerate() {
                                 if i != 0 {
                                     dst.push(b':');
@@ -337,17 +363,21 @@ impl<'a> LogRender<'a> {
                                 }
                                 dst.extend_from_slice(slice::from_raw_parts(ptr.add(*off), *len));
                             }
+                            self.color_reset(dst);
                             dst.push(b'\n');
                             self.tree_pop_prefix();
                         }
                         RenderGroupType::ErrorEmbed => {
                             self.render_tree_prefix(dst, node.next);
+                            self.color_err_key(dst);
                             dst.extend_from_slice(log_render::predefined_key(PREDEFINED_NAME_TEXT));
                             dst.push(b':');
                             dst.push(b' ');
                             let (length, off) = embed_err_text;
                             let txt = slice::from_raw_parts(ptr.add(off), length);
+                            self.color_level_error(dst);
                             dst.extend_from_slice(txt);
+                            self.color_reset(dst);
                             dst.push(b'\n');
                             self.tree_pop_prefix();
                         }
@@ -369,43 +399,47 @@ impl<'a> LogRender<'a> {
         next: u32,
     ) where
         T: slice_items::TreeLiteral,
-    { unsafe {
-        if len < self.expand_array_since {
-            dst.push(b':');
-            dst.push(b' ');
-            for i in 0..len as usize {
-                if i > 0 {
-                    dst.push(b',');
-                    dst.push(b' ');
+    {
+        unsafe {
+            if len < self.expand_array_since {
+                dst.push(b':');
+                dst.push(b' ');
+                for i in 0..len as usize {
+                    if i > 0 {
+                        dst.push(b',');
+                        dst.push(b' ');
+                    }
+                    ptr = T::render(self, dst, ptr);
                 }
-                ptr = T::render(self, dst, ptr);
+                dst.push(b'\n');
+                return;
             }
-            dst.push(b'\n');
-            return;
-        }
 
-        self.tree_push_prefix_tmp(next);
-        dst.push(b'\n');
-        for i in 0..len {
-            self.render_tree_prefix(dst, (len - i - 1) as u32);
-            let s = self.itoa.format(i);
-            dst.extend_from_slice(s.as_bytes());
-            dst.push(b':');
-            dst.push(b' ');
-            ptr = T::render(self, dst, ptr);
+            self.tree_push_prefix_tmp(next);
             dst.push(b'\n');
+            for i in 0..len {
+                self.render_tree_prefix(dst, (len - i - 1) as u32);
+                let s = self.itoa.format(i);
+                dst.extend_from_slice(s.as_bytes());
+                dst.push(b':');
+                dst.push(b' ');
+                ptr = T::render(self, dst, ptr);
+                dst.push(b'\n');
+            }
+            self.tree_depth -= 1;
         }
-        self.tree_depth -= 1;
-    }}
+    }
 
     #[inline(always)]
-    unsafe fn render_tree_prefix(&self, dst: &mut Vec<u8>, next: u32) {
+    unsafe fn render_tree_prefix(&mut self, dst: &mut Vec<u8>, next: u32) {
+        self.color_link(dst);
         render_tree_prefix(dst, self.tree_prefix, self.tree_depth);
         if next != 0 {
             dst.extend_from_slice(TREE_ITEM_INTR);
         } else {
             dst.extend_from_slice(TREE_ITEM_FIN);
         }
+        self.color_reset(dst);
     }
 
     #[inline(always)]

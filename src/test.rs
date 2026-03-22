@@ -1,10 +1,10 @@
-
 #[cfg(test)]
 mod test {
     use crate::log_parser::LogParser;
     use crate::log_render::LogRender;
     use std::fs;
     use crate::log_parser_tree_builder::show;
+    use crate::log_render_color::ColorProfile;
 
     #[test]
     fn showcase_for_log_parser_and_render() {
@@ -32,7 +32,7 @@ mod test {
         let mut parser = LogParser::new();
 
         unsafe {
-            let mut render = LogRender::new();
+            let mut render = LogRender::new(ColorProfile::dark());
             let (record, _)=parser.parse_log_data(rdata).unwrap();
             parser.make_record(&mut render);
 

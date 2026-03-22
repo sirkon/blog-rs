@@ -5,6 +5,7 @@ use crate::slice_items;
 use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
 use crate::log_render;
 use std::slice;
+use super::*;
 
 impl<'a> LogRender<'a> {
     pub unsafe fn render_json(&mut self, dst: &mut Vec<u8>, src: &[u8]) {
@@ -81,12 +82,12 @@ impl<'a> LogRender<'a> {
                     }
                     NodeKind::Time => {
                         dst.push(b'"');
-                        self.render_time(dst, node.val_as_u64() as i64);
+                        self.render_time(dst, node.val_as_u64() as i64, true);
                         dst.push(b'"');
                     }
                     NodeKind::Dur => {
                         dst.push(b'"');
-                        self.render_go_duration(dst, node.val_as_u64());
+                        self.render_go_duration(dst, node.val_as_u64(), true);
                         dst.push(b'"');
                     }
                     NodeKind::Int => {
