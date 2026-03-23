@@ -1,4 +1,5 @@
 use std::slice;
+use crate::crc32custom::fast_crc32c;
 
 /// Parses input source for logs and splits it into (log_data, rest of the data) on happy path.
 #[inline(always)]
@@ -29,7 +30,8 @@ pub(crate) unsafe fn log_parse_header(
         }
         let off = 5 + size;
         let record = slice::from_raw_parts(ptr.add(off), length as usize);
-        let check = crc32c::crc32c(record);
+
+        let check = fast_crc32c(0u32, record);
         if check != record_crc {
             return Err(ErrorLogParse::RecordCRCMismatch);
         }

@@ -17,6 +17,7 @@ mod slice_items;
 mod test;
 mod transform_items;
 mod value_kind;
+mod crc32custom;
 
 pub use log_parser::LogParser;
 pub use log_render::LogRender;

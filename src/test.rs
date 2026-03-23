@@ -8,6 +8,7 @@ mod test {
     use std::fs;
     use std::fs::File;
     use std::io::{BufWriter, Write};
+    use jiff::Timestamp;
 
     #[test]
     fn test_large_file() {
@@ -15,14 +16,14 @@ mod test {
         let mut rdata = data.as_slice();
 
         let file = File::create("./src/testdata/large.jsonl").unwrap();
-        // По умолчанию буфер 8 КБ, но для 2 ГБ мяса можно бахнуть и 128 КБ
-        let mut writer = BufWriter::with_capacity(512 * 1024, file);
+        let mut writer = BufWriter::with_capacity(2 * 1024 * 1024, file);
 
-        let mut dst: Vec<u8> = Vec::with_capacity(512 * 1024);
+        let mut dst: Vec<u8> = Vec::with_capacity(128 * 1024);
         // let mut parser = LogParser::new();
 
         let mut render = LogTransfomer::new();
 
+        let now = jiff::Timestamp::now();
         while rdata.len() > 0 {
             dst.clear();
             unsafe {
@@ -33,6 +34,7 @@ mod test {
             dst.push(b'\n');
             writer.write_all(&dst).unwrap();
         }
+        println!("{}", jiff::Timestamp::now() - now);
     }
 
     #[test]
