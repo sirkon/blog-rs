@@ -1,6 +1,6 @@
-use crate::log_parser::read_uvarint;
+use crate::log_parse::read_uvarint;
 use crate::log_render::LogRender;
-use crate::log_render_json::render_json_string;
+use crate::log_rend_json::render_json_string;
 use std::slice;
 
 pub(crate) trait JSONLiteral {

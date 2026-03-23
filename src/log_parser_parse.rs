@@ -1,5 +1,7 @@
 use super::*;
-use crate::log_parser::{CtxParsingState, LogParser, read_uvarint, read_uvarint_safe};
+use crate::log_parse;
+use crate::log_parse::{log_parse_header, read_uvarint, CtxParsingState};
+use crate::log_parser::LogParser;
 use crate::log_parser_node::NodeKind;
 use std::slice;
 
@@ -11,40 +13,14 @@ impl LogParser {
     pub(crate) unsafe fn parse_log_data<'a>(
         &mut self,
         src: &'a [u8],
-    ) -> Result<(&'a [u8], &'a [u8]), log_parser::ErrorLogParse> {
+    ) -> Result<(&'a [u8], &'a [u8]), log_parse::ErrorLogParse> {
         unsafe {
-            if src.len() < 5 {
-                return Err(log_parser::ErrorLogParse::NoHeader);
-            }
-
-            let ptr = src.as_ptr() as *mut u8;
-            if *ptr != 0xFF {
-                return Err(log_parser::ErrorLogParse::StartMarkerInvalid);
-            }
-
-            let record_crc = ptr.add(1).cast::<u32>().read_unaligned();
-            let (length, size) = read_uvarint_safe(ptr.add(5), src.len() - 5);
-            if size == usize::MAX {
-                return Err(log_parser::ErrorLogParse::RecordLengthInvalid);
-            }
-            if length as usize > self.max_log_size {
-                return Err(log_parser::ErrorLogParse::RecordLengthTooLarge);
-            }
-            if 5 + size + length as usize > src.len() {
-                return Err(log_parser::ErrorLogParse::RecordNeedMore);
-            }
-            let off = 5 + size;
-            let record = slice::from_raw_parts(ptr.add(off), length as usize);
-            let check = crc32c::crc32c(record);
-            if check != record_crc {
-                return Err(log_parser::ErrorLogParse::RecordBroken);
-            }
+            let (record, rest) = match log_parse_header(src, self.max_log_size) {
+                Ok(x) => x,
+                Err(e) => return Err(e),
+            };
             self.parse_log_record(record)?;
 
-            let rest = slice::from_raw_parts(
-                ptr.add(off + length as usize),
-                src.len() - off - length as usize,
-            );
             Ok((record, rest))
         }
     }
@@ -52,7 +28,7 @@ impl LogParser {
     pub(crate) unsafe fn parse_log_record<'a>(
         &mut self,
         src: &'a [u8],
-    ) -> Result<(), log_parser::ErrorLogParse> {
+    ) -> Result<(), log_parse::ErrorLogParse> {
         unsafe {
             let ptr = src.as_ptr() as *mut u8;
 
@@ -60,9 +36,7 @@ impl LogParser {
             let version = ptr.cast::<u16>().read_unaligned();
             // TODO
             if version != 1 {
-                return Err(log_parser::ErrorLogParse::RecordVersionNotSupported(
-                    version,
-                ));
+                return Err(log_parse::ErrorLogParse::RecordVersionNotSupported(version));
             }
 
             self.time = ptr.add(2).cast::<u64>().read_unaligned();
@@ -108,7 +82,7 @@ impl LogParser {
 
             let _need_tree: bool = false;
             let mut on_error_stage = false;
-            let mut parsing_state = log_parser::CtxParsingState::Normal;
+            let mut parsing_state = CtxParsingState::Normal;
             let mut group_cap: usize = 0;
             let mut group_off: usize = 0;
             loop {

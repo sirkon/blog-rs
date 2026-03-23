@@ -1,7 +1,7 @@
 use crate::level;
+use crate::log_rend::{render_go_duration, render_time};
 use crate::log_render_color::ColorProfile;
 use crate::value_kind::{PREDEFINED_KEYS, ValueKind};
-use jiff::Timestamp;
 use memchr::Memchr;
 use std::io::Read;
 use std::slice;
@@ -275,141 +275,13 @@ impl<'a> LogRender<'a> {
 
     #[inline(always)]
     pub(crate) fn render_go_duration(&mut self, dst: &mut Vec<u8>, nanos: u64, in_ctx: bool) {
-        if nanos == 0 {
-            dst.extend_from_slice(b"0s");
-            return;
-        }
-
-        if nanos < 1_000 {
-            // < 1µs
-            let val = self.itoa.format(nanos);
-            dst.extend_from_slice(val.as_bytes());
-            dst.extend_from_slice(b"ns");
-        } else if nanos < 1_000_000 {
-            // < 1ms
-            let val = self.itoa.format(nanos / 1_000);
-            dst.extend_from_slice(val.as_bytes());
-            dst.extend_from_slice(b"\xB5s");
-        } else if nanos < 1_000_000_000 {
-            // < 1s
-            let val = self.itoa.format(nanos / 1_000_000);
-            dst.extend_from_slice(val.as_bytes());
-            dst.extend_from_slice(b"ms");
-        } else {
-            let mut seconds = nanos / 1_000_000_000;
-            let n = nanos % 1_000_000_000;
-
-            let hours = seconds / 3600;
-            seconds %= 3600;
-            let minutes = seconds / 60;
-            seconds %= 60;
-
-            if hours > 0 {
-                let val = self.itoa.format(hours);
-                dst.extend_from_slice(val.as_bytes());
-                dst.extend_from_slice(b"h");
-            }
-            if minutes > 0 {
-                let val = self.itoa.format(minutes);
-                dst.extend_from_slice(val.as_bytes());
-                dst.extend_from_slice(b"m");
-            }
-            if seconds > 0 || n > 0 {
-                if n == 0 {
-                    let val = self.itoa.format(seconds);
-                    dst.extend_from_slice(val.as_bytes());
-                    dst.extend_from_slice(b"s");
-                } else {
-                    // Формат секунд с дробной частью, как в Go (до 9 знаков)
-                    let val = self.itoa.format(seconds);
-                    dst.extend_from_slice(val.as_bytes());
-                    let val = self.itoa.format(1_000_000_000 + n);
-                    let fraction = &val.as_bytes()[1..];
-                    let mut end = 9;
-                    while end > 0 && fraction[end - 1] == b'0' {
-                        end -= 1;
-                    }
-                    if end > 0 {
-                        dst.push(b'.');
-                        dst.extend_from_slice(&fraction[..end]);
-                    }
-                    dst.push(b's');
-                }
-            }
-        }
+        render_go_duration(&mut self.itoa, dst, nanos);
     }
 
-    /// TODO: replace on something functional, with timezones and so on.
     #[inline(always)]
     pub(crate) fn render_time(&mut self, dst: &mut Vec<u8>, nanos: i64, in_ctx: bool) {
         self.color_time(dst);
-
-        let secs = nanos / 1_000_000_000;
-        let nsecs = (nanos % 1_000_000_000) as i32;
-
-        // Создаём Timestamp из секунд и наносекунд
-        let ts = match Timestamp::new(secs, nsecs) {
-            Ok(ts) => ts,
-            _ => {
-                dst.extend_from_slice(b"????-??-?? ??:??:??.???");
-                return;
-            }
-        };
-
-        // Конвертируем в локальный часовой пояс
-        let zoned = ts.to_zoned(jiff::tz::TimeZone::system());
-
-        // Получаем компоненты
-        let year = zoned.year();
-        let month = zoned.month();
-        let day = zoned.day();
-        let hour = zoned.hour();
-        let minute = zoned.minute();
-        let second = zoned.second();
-        let millisecond = zoned.millisecond(); // миллисекунды 0-999
-
-        // Форматируем через itoa
-        dst.extend_from_slice(self.itoa.format(year).as_bytes());
-        dst.push(b'-');
-
-        if month < 10 {
-            dst.push(b'0');
-        }
-        dst.extend_from_slice(self.itoa.format(month).as_bytes());
-        dst.push(b'-');
-
-        if day < 10 {
-            dst.push(b'0');
-        }
-        dst.extend_from_slice(self.itoa.format(day).as_bytes());
-        dst.push(b' ');
-
-        if hour < 10 {
-            dst.push(b'0');
-        }
-        dst.extend_from_slice(self.itoa.format(hour).as_bytes());
-        dst.push(b':');
-
-        if minute < 10 {
-            dst.push(b'0');
-        }
-        dst.extend_from_slice(self.itoa.format(minute).as_bytes());
-        dst.push(b':');
-
-        if second < 10 {
-            dst.push(b'0');
-        }
-        dst.extend_from_slice(self.itoa.format(second).as_bytes());
-
-        // Миллисекунды с ведущими нулями (3 знака)
-        dst.push(b'.');
-        if millisecond < 100 {
-            dst.push(b'0');
-            if millisecond < 10 {
-                dst.push(b'0');
-            }
-        }
-        dst.extend_from_slice(self.itoa.format(millisecond).as_bytes());
+        render_time(&mut self.itoa, dst, nanos);
         self.color_reset(dst);
     }
 }

@@ -1,12 +1,10 @@
 use crate::log_parser_node::Node;
 use crate::log_parser_node::NodeKind;
-use crate::log_render::{LogRender, RenderGroupType};
-use crate::slice_items;
-use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
 use crate::log_render;
+use crate::log_render::{LogRender, RenderGroupType};
+use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
+use crate::{log_rend_json, slice_items};
 use std::slice;
-use super::*;
-
 impl<'a> LogRender<'a> {
     pub unsafe fn render_json(&mut self, dst: &mut Vec<u8>, src: &[u8]) {
         unsafe {
@@ -48,13 +46,19 @@ impl<'a> LogRender<'a> {
                             NodeKind::ErrorStageNew => {
                                 dst.push(b'"');
                                 dst.extend_from_slice(b"NEW: ");
-                                render_json_string_content(dst, node.key_as_slice(ptr));
+                                log_rend_json::render_json_string_content(
+                                    dst,
+                                    node.key_as_slice(ptr),
+                                );
                                 dst.push(b'"');
                             }
                             NodeKind::ErrorStageWrap => {
                                 dst.push(b'"');
                                 dst.extend_from_slice(b"WRAP: ");
-                                render_json_string_content(dst, node.key_as_slice(ptr));
+                                log_rend_json::render_json_string_content(
+                                    dst,
+                                    node.key_as_slice(ptr),
+                                );
                                 dst.push(b'"');
                             }
                             NodeKind::ErrorStageCtx => {
@@ -63,7 +67,7 @@ impl<'a> LogRender<'a> {
                                 dst.push(b'"');
                             }
                             _ => {
-                                render_json_string(dst, node.key_as_slice(ptr));
+                                log_rend_json::render_json_string(dst, node.key_as_slice(ptr));
                             }
                         }
 
@@ -127,7 +131,7 @@ impl<'a> LogRender<'a> {
                         self.render_float(dst, f64::from_bits(node.val_as_u64()));
                     }
                     NodeKind::Str => {
-                        render_json_string(dst, node.val_as_slice(ptr));
+                        log_rend_json::render_json_string(dst, node.val_as_slice(ptr));
                     }
                     NodeKind::Bytes => {
                         dst.push(b'"');
@@ -135,7 +139,7 @@ impl<'a> LogRender<'a> {
                         dst.push(b'"');
                     }
                     NodeKind::ErrTxt => {
-                        render_json_string(dst, node.val_as_slice(ptr));
+                        log_rend_json::render_json_string(dst, node.val_as_slice(ptr));
                     }
                     NodeKind::ErrTxtFragment => {}
                     NodeKind::ErrLoc => {
@@ -225,7 +229,7 @@ impl<'a> LogRender<'a> {
                             self.grp_stack.push((pos, render_state));
                             render_state = RenderGroupType::Error;
                             dst.push(b'{');
-                            render_json_string(
+                            log_rend_json::render_json_string(
                                 dst,
                                 log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
                             );
@@ -246,7 +250,7 @@ impl<'a> LogRender<'a> {
                             self.grp_stack.push((pos, render_state));
                             render_state = RenderGroupType::ErrorEmbed;
                             dst.push(b'{');
-                            render_json_string(
+                            log_rend_json::render_json_string(
                                 dst,
                                 log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
                             );
@@ -294,7 +298,7 @@ impl<'a> LogRender<'a> {
                         RenderGroupType::Error => {
                             dst.push(b',');
                             dst.push(b' ');
-                            render_json_string(
+                            log_rend_json::render_json_string(
                                 dst,
                                 log_render::predefined_key(PREDEFINED_NAME_TEXT),
                             );
@@ -314,7 +318,7 @@ impl<'a> LogRender<'a> {
                         RenderGroupType::ErrorEmbed => {
                             dst.push(b',');
                             dst.push(b' ');
-                            render_json_string(
+                            log_rend_json::render_json_string(
                                 dst,
                                 log_render::predefined_key(PREDEFINED_NAME_TEXT),
                             );
@@ -322,7 +326,7 @@ impl<'a> LogRender<'a> {
                             dst.push(b' ');
                             let (length, off) = embed_err_text;
                             let txt = slice::from_raw_parts(ptr.add(off), length);
-                            render_json_string(dst, txt);
+                            log_rend_json::render_json_string(dst, txt);
                             dst.push(b'}');
                         }
                         _ => {}
@@ -341,96 +345,24 @@ impl<'a> LogRender<'a> {
     unsafe fn render_json_slice<T>(&mut self, dst: &mut Vec<u8>, mut ptr: *const u8, len: usize)
     where
         T: slice_items::JSONLiteral,
-    { unsafe {
-        dst.push(b'[');
-        for i in 0..len as usize {
-            if i > 0 {
-                dst.push(b',');
-                dst.push(b' ');
+    {
+        unsafe {
+            dst.push(b'[');
+            for i in 0..len as usize {
+                if i > 0 {
+                    dst.push(b',');
+                    dst.push(b' ');
+                }
+                ptr = T::render(self, dst, ptr);
             }
-            ptr = T::render(self, dst, ptr);
+            dst.push(b']');
         }
-        dst.push(b']');
-    }}
-}
-
-#[inline(always)]
-pub(crate) unsafe fn render_json_string(dst: &mut Vec<u8>, src: &[u8]) {
-    unsafe {
-        dst.push(b'"');
-        render_json_string_content(dst, src);
-        dst.push(b'"');
     }
-}
-
-#[inline(always)]
-pub(crate) unsafe fn render_json_string_content(dst: &mut Vec<u8>, src: &[u8]) {
-    let Some(first_escape) = src.iter().position(|&b| NEEDS_ESCAPE[b as usize] != 0) else {
-        dst.extend_from_slice(src);
-        return;
-    };
-
-    let mut start = 0;
-    let mut i = first_escape;
-
-    while i < src.len() {
-        let b = src[i];
-
-        if NEEDS_ESCAPE[b as usize] == 0 {
-            i += 1;
-            continue;
-        }
-
-        if start < i {
-            dst.extend_from_slice(&src[start..i]);
-        }
-
-        match b {
-            b'"' => dst.extend_from_slice(br#"\""#),
-            b'\\' => dst.extend_from_slice(br#"\\"#),
-            b'\n' => dst.extend_from_slice(br#"\n"#),
-            b'\r' => dst.extend_from_slice(br#"\r"#),
-            b'\t' => dst.extend_from_slice(br#"\t"#),
-            0x08 => dst.extend_from_slice(br#"\b"#),
-            0x0C => dst.extend_from_slice(br#"\f"#),
-            _ => {
-                // control chars: \u00XX
-                dst.extend_from_slice(br#"\u00"#);
-                dst.push(HEX[(b >> 4) as usize]);
-                dst.push(HEX[(b & 0x0F) as usize]);
-            }
-        }
-
-        i += 1;
-        start = i;
-    }
-
-    if start < src.len() {
-        dst.extend_from_slice(&src[start..]);
-    }
-}
-
-const HEX: &[u8; 16] = b"0123456789abcdef";
-const NEEDS_ESCAPE: [u8; 256] = build_needs_escape();
-
-const fn build_needs_escape() -> [u8; 256] {
-    let mut t = [0u8; 256];
-
-    let mut i = 0;
-    while i < 0x20 {
-        t[i] = 1;
-        i += 1;
-    }
-
-    t[b'"' as usize] = 1;
-    t[b'\\' as usize] = 1;
-
-    t
 }
 
 #[cfg(test)]
 mod test {
-    use crate::log_render_json::render_json_string;
+    use crate::log_rend_json::render_json_string;
 
     #[test]
     fn test_render_json_string() {

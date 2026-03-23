@@ -13,13 +13,11 @@ overflow-checks = false
 overflow-checks = false
 
 [dependencies]
-num-traits = "0.2.19"
 crc32c = "0.6"
 itoa = "1.0.17"
 flate2 = "1.1.9"
 memchr = "2.8.0"
 ryu = "1.0.23"
 base64-simd = "0.8.0"
-serde = { version = "1.0.228", features = ["derive"] }
-strum = "0.28.0"
 jiff = "0.2.23"
+sonic-rs = "0.5.7"

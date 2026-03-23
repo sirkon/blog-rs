@@ -276,7 +276,7 @@ pub(crate) const PREFIXES: &[&str] = &[
 
 #[cfg(test)]
 mod test {
-    use crate::log_render_tree_prefixes::{render_tree_prefix, PREFIXES};
+    use crate::log_render_tree_prefixes::{render_tree_prefix};
 
     #[test]
     fn test_prefixes() {

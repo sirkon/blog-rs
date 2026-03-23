@@ -1,4 +1,3 @@
-use super::*;
 use crate::log_parser_node::{Node, NodeKind};
 use crate::log_render::{LogRender, RenderGroupType};
 use crate::log_render_tree_prefixes::render_tree_prefix;

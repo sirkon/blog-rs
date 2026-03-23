@@ -1,6 +1,8 @@
 #![allow(unused_unsafe)]
 #![allow(unsafe_code)]
 
+use crate::log_parse;
+use crate::log_parse::CtxParsingState;
 use crate::log_parser_node::NodeKind;
 use crate::log_parser_tree_builder::TreeBuilder;
 use crate::log_render::LogRender;
@@ -22,41 +24,6 @@ pub struct LogParser {
     pub(crate) location: Option<(usize, usize, usize)>,
     pub(crate) msg:      (usize, usize),
     pub(crate) ctx:      TreeBuilder,
-}
-
-/// Log parsing error states.
-#[derive(Copy, Clone, Debug)]
-pub(crate) enum ErrorLogParse {
-    /// Missing this
-    ///
-    /// | 0xFF | CRC32 |
-    /// |------|-------|
-    ///
-    /// 5 bytes header.
-    NoHeader,
-    /// Log data must start with 0xFF, got something different.
-    StartMarkerInvalid,
-    /// Record length in uvarint encoding is either cut or something is off with it.
-    RecordLengthInvalid,
-    /// Record length is out of limit.
-    RecordLengthTooLarge,
-    /// The rest of data does not have the entire record. Need to read more.
-    RecordNeedMore,
-    /// Record data does not match the CRC.
-    RecordBroken,
-    /// Record data has unsupported version.
-    RecordVersionNotSupported(u16),
-    /// Record data has unsupported level.
-    RecordLevelNotSupported(u8),
-}
-
-/// Denotes a context parsing state.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CtxParsingState {
-    Normal,
-    Group,
-    Error,
-    ErrorEmbed,
 }
 
 impl LogParser {
@@ -133,7 +100,7 @@ impl LogParser {
         key_off: u32,
     ) -> usize {
         unsafe {
-            let (length, size) = read_uvarint(src.add(off));
+            let (length, size) = log_parse::read_uvarint(src.add(off));
             self.ctx
                 .add(nkind, key_len, key_off, length as u32, (off + size) as u32);
 
@@ -151,54 +118,12 @@ impl LogParser {
         siz: usize,
     ) -> usize {
         unsafe {
-            let (length, size) = read_uvarint(src.add(off));
+            let (length, size) = log_parse::read_uvarint(src.add(off));
             self.ctx
                 .add(nkind, key_len, key_off, length as u32, (off + size) as u32);
 
             off + size + (length as usize) * siz
         }
-    }
-}
-
-#[inline(always)]
-pub(crate) unsafe fn read_uvarint(ptr: *const u8) -> (u64, usize) {
-    unsafe {
-        let mut res = 0u64;
-        let mut i = 0;
-        loop {
-            let b = *ptr.add(i);
-            res |= ((b & 0x7F) as u64) << (i * 7);
-            i += 1;
-            if b & 0x80 == 0 {
-                break;
-            }
-        }
-
-        (res, i)
-    }
-}
-
-#[inline(always)]
-pub(crate) unsafe fn read_uvarint_safe(ptr: *const u8, mut lim: usize) -> (u64, usize) {
-    unsafe {
-        let mut res = 0u64;
-        let mut i = 0;
-        if lim > 10 {
-            lim = 10;
-        }
-        loop {
-            if i >= lim {
-                return (res, usize::MAX);
-            }
-            let b = *ptr.add(i);
-            res |= ((b & 0x7F) as u64) << (i * 7);
-            i += 1;
-            if b & 0x80 == 0 {
-                break;
-            }
-        }
-
-        (res, i)
     }
 }
 
