@@ -276,40 +276,40 @@ pub(crate) const PREFIXES: &[&str] = &[
 
 #[cfg(test)]
 mod test {
-    use crate::log_render_tree_prefixes::{render_tree_prefix};
+    use crate::log_render_tree_prefixes::render_tree_prefix;
 
     #[test]
     fn test_prefixes() {
         #[derive(Copy, Clone, Debug)]
         struct TestSample {
             stack: &'static [bool],
-            want: &'static str,
+            want:  &'static str,
         }
 
         let tests = [
             TestSample {
                 stack: &[],
-                want: "",
+                want:  "",
             },
             TestSample {
                 stack: &[true],
-                want: "│  ",
+                want:  "│  ",
             },
             TestSample {
                 stack: &[false],
-                want: "   ",
+                want:  "   ",
             },
             TestSample {
                 stack: &[true, true, false],
-                want: "│  │     ",
+                want:  "│  │     ",
             },
-            TestSample{
+            TestSample {
                 stack: &[false, true, true],
-                want: "   │  │  ",
+                want:  "   │  │  ",
             },
-            TestSample{
+            TestSample {
                 stack: &[true, false, false, false, false, false, false, false, false],
-                want: "│                          ",
+                want:  "│                          ",
             },
         ];
 
@@ -327,16 +327,13 @@ mod test {
                         } else {
                             tmp_name += "0"
                         }
-                    };
+                    }
                     tmp_name.as_str()
                 }
             };
 
             if depth > 64 {
-                panic!(
-                    "{}: depths over 64 are not supported, got {}",
-                    name, depth
-                );
+                panic!("{}: depths over 64 are not supported, got {}", name, depth);
             }
 
             let mut bitmap: u64 = 0;
@@ -351,7 +348,10 @@ mod test {
             unsafe {
                 let got = str::from_utf8_unchecked(&pref);
                 if got != t.want {
-                    panic!("{} data mismatch:\nwant: ^{}$\ngot:  ^{}$", name, t.want, got)
+                    panic!(
+                        "{} data mismatch:\nwant: ^{}$\ngot:  ^{}$",
+                        name, t.want, got
+                    )
                 }
             }
         }

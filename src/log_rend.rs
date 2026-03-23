@@ -71,11 +71,7 @@ pub(crate) fn render_time(rendbuf: &mut itoa::Buffer, dst: &mut Vec<u8>, nanos: 
 }
 
 #[inline(always)]
-pub(crate) fn render_go_duration(
-    rendbuf: &mut itoa::Buffer,
-    dst: &mut Vec<u8>,
-    nanos: u64,
-) {
+pub(crate) fn render_go_duration(rendbuf: &mut itoa::Buffer, dst: &mut Vec<u8>, nanos: u64) {
     if nanos == 0 {
         dst.extend_from_slice(b"0s");
         return;

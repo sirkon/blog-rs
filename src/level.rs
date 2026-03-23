@@ -1,4 +1,3 @@
-
 pub const TRACE: u8 = 10u8;
 pub const DEBUG: u8 = 20u8;
 pub const INFO: u8 = 30u8;

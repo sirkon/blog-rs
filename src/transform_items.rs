@@ -6,7 +6,7 @@ use std::slice;
 
 pub(crate) trait TransformLiteral {
     unsafe fn render(t: &mut LogTransfomer, dst: &mut Vec<u8>, ptr: *const u8, off: usize)
-    -> usize;
+        -> usize;
 }
 
 pub(crate) struct TransformTime {}
@@ -18,19 +18,21 @@ pub(crate) struct TransformBytes {}
 impl TransformLiteral for bool {
     #[inline(always)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        _t: &mut LogTransfomer,
         dst: &mut Vec<u8>,
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = ptr.add(off).cast::<u8>().read_unaligned();
-        if val != 0 {
-            render_safe_json_string(dst, b"true");
-        } else {
-            render_json_string(dst, b"false");
-        }
+        unsafe {
+            let val = ptr.add(off).cast::<u8>().read_unaligned();
+            if val != 0 {
+                render_safe_json_string(dst, b"true");
+            } else {
+                render_json_string(dst, b"false");
+            }
 
-        off + 1
+            off + 1
+        }
     }
 }
 
@@ -42,12 +44,14 @@ impl TransformLiteral for TransformTime {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
-        dst.push(b'"');
-        render_time(&mut t.itoa, dst, val as i64);
-        dst.push(b'"');
+        unsafe {
+            let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
+            dst.push(b'"');
+            render_time(&mut t.itoa, dst, val as i64);
+            dst.push(b'"');
 
-        off + 8
+            off + 8
+        }
     }
 }
 
@@ -59,12 +63,14 @@ impl TransformLiteral for TransformDuration {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
-        dst.push(b'"');
-        render_go_duration(&mut t.itoa, dst, val);
-        dst.push(b'"');
+        unsafe {
+            let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
+            dst.push(b'"');
+            render_go_duration(&mut t.itoa, dst, val);
+            dst.push(b'"');
 
-        off + 8
+            off + 8
+        }
     }
 }
 
@@ -76,11 +82,13 @@ impl TransformLiteral for i64 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = i64::from_le(ptr.add(off).cast::<i64>().read_unaligned());
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = i64::from_le(ptr.add(off).cast::<i64>().read_unaligned());
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 8
+            off + 8
+        }
     }
 }
 
@@ -92,11 +100,13 @@ impl TransformLiteral for i32 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = i32::from_le(ptr.add(off).cast::<i32>().read_unaligned());
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = i32::from_le(ptr.add(off).cast::<i32>().read_unaligned());
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 4
+            off + 4
+        }
     }
 }
 
@@ -108,11 +118,13 @@ impl TransformLiteral for i16 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = i16::from_le(ptr.add(off).cast::<i16>().read_unaligned());
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = i16::from_le(ptr.add(off).cast::<i16>().read_unaligned());
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 2
+            off + 2
+        }
     }
 }
 
@@ -124,11 +136,13 @@ impl TransformLiteral for i8 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = ptr.add(off).cast::<i8>().read_unaligned();
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = ptr.add(off).cast::<i8>().read_unaligned();
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 1
+            off + 1
+        }
     }
 }
 
@@ -140,11 +154,13 @@ impl TransformLiteral for u64 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 8
+            off + 8
+        }
     }
 }
 
@@ -156,11 +172,13 @@ impl TransformLiteral for u32 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = u32::from_le(ptr.add(off).cast::<u32>().read_unaligned());
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = u32::from_le(ptr.add(off).cast::<u32>().read_unaligned());
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 4
+            off + 4
+        }
     }
 }
 
@@ -172,11 +190,13 @@ impl TransformLiteral for u16 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = u16::from_le(ptr.add(off).cast::<u16>().read_unaligned());
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = u16::from_le(ptr.add(off).cast::<u16>().read_unaligned());
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 2
+            off + 2
+        }
     }
 }
 
@@ -188,11 +208,13 @@ impl TransformLiteral for u8 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = ptr.add(off).cast::<u8>().read_unaligned();
-        let s = t.itoa.format(val);
-        dst.extend_from_slice(s.as_bytes());
+        unsafe {
+            let val = ptr.add(off).cast::<u8>().read_unaligned();
+            let s = t.itoa.format(val);
+            dst.extend_from_slice(s.as_bytes());
 
-        off + 1
+            off + 1
+        }
     }
 }
 
@@ -204,16 +226,18 @@ impl TransformLiteral for f64 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
-        let fval = f64::from_bits(val);
-        if !f64::is_nan(fval) {
-            let s = t.ryu.format(fval);
-            dst.extend_from_slice(s.as_bytes());
-        } else {
-            render_safe_json_string(dst, b"NaN");
-        }
+        unsafe {
+            let val = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
+            let fval = f64::from_bits(val);
+            if !f64::is_nan(fval) {
+                let s = t.ryu.format(fval);
+                dst.extend_from_slice(s.as_bytes());
+            } else {
+                render_safe_json_string(dst, b"NaN");
+            }
 
-        off + 8
+            off + 8
+        }
     }
 }
 
@@ -225,50 +249,56 @@ impl TransformLiteral for f32 {
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let val = u32::from_le(ptr.add(off).cast::<u32>().read_unaligned());
-        let fval = f32::from_bits(val);
-        if !f32::is_nan(fval) {
-            let s = t.ryu.format(fval);
-            dst.extend_from_slice(s.as_bytes());
-        } else {
-            render_safe_json_string(dst, b"NaN");
-        }
+        unsafe {
+            let val = u32::from_le(ptr.add(off).cast::<u32>().read_unaligned());
+            let fval = f32::from_bits(val);
+            if !f32::is_nan(fval) {
+                let s = t.ryu.format(fval);
+                dst.extend_from_slice(s.as_bytes());
+            } else {
+                render_safe_json_string(dst, b"NaN");
+            }
 
-        off + 4
+            off + 4
+        }
     }
 }
 
 impl TransformLiteral for TransformString {
     #[inline(always)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        _t: &mut LogTransfomer,
         dst: &mut Vec<u8>,
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let (length, size) = read_uvarint(ptr.add(off));
-        render_json_string_ptr(dst, ptr.add(off + size), length as usize);
+        unsafe {
+            let (length, size) = read_uvarint(ptr.add(off));
+            render_json_string_ptr(dst, ptr.add(off + size), length as usize);
 
-        off + size + length as usize
+            off + size + length as usize
+        }
     }
 }
 
 impl TransformLiteral for TransformBytes {
     #[inline(always)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        _t: &mut LogTransfomer,
         dst: &mut Vec<u8>,
         ptr: *const u8,
         off: usize,
     ) -> usize {
-        let (length, size) = read_uvarint(ptr.add(off));
-        dst.push(b'"');
-        base64_simd::STANDARD.encode_append(
-            slice::from_raw_parts(ptr.add(off + size), length as usize),
-            dst,
-        );
-        dst.push(b'"');
+        unsafe {
+            let (length, size) = read_uvarint(ptr.add(off));
+            dst.push(b'"');
+            base64_simd::STANDARD.encode_append(
+                slice::from_raw_parts(ptr.add(off + size), length as usize),
+                dst,
+            );
+            dst.push(b'"');
 
-        off + size + length as usize
+            off + size + length as usize
+        }
     }
 }

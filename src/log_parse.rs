@@ -2,36 +2,44 @@ use std::slice;
 
 /// Parses input source for logs and splits it into (log_data, rest of the data) on happy path.
 #[inline(always)]
-pub(crate) unsafe fn log_parse_header(src: &[u8], max_log_size: usize) -> Result<(&[u8], &[u8]), ErrorLogParse> {
-    if src.len() < 5 {
-        return Err(ErrorLogParse::NoHeader);
-    }
+pub(crate) unsafe fn log_parse_header(
+    src: &[u8],
+    max_log_size: usize,
+) -> Result<(&[u8], &[u8]), ErrorLogParse> {
+    unsafe {
+        if src.len() < 5 {
+            return Err(ErrorLogParse::NoHeader);
+        }
 
-    let ptr = src.as_ptr() as *mut u8;
-    if *ptr != 0xFF {
-        return Err(ErrorLogParse::StartMarkerInvalid);
-    }
+        let ptr = src.as_ptr() as *mut u8;
+        if *ptr != 0xFF {
+            return Err(ErrorLogParse::StartMarkerInvalid);
+        }
 
-    let record_crc = ptr.add(1).cast::<u32>().read_unaligned();
-    let (length, size) = read_uvarint_safe(ptr.add(5), src.len() - 5);
-    if size == usize::MAX {
-        return Err(ErrorLogParse::RecordLengthInvalid);
-    }
-    if length as usize > max_log_size {
-        return Err(ErrorLogParse::RecordLengthTooLarge);
-    }
-    if 5 + size + length as usize > src.len() {
-        return Err(ErrorLogParse::RecordNeedMore);
-    }
-    let off = 5 + size;
-    let record = slice::from_raw_parts(ptr.add(off), length as usize);
-    let check = crc32c::crc32c(record);
-    if check != record_crc {
-        return Err(ErrorLogParse::RecordCRCMismatch)
-    }
-    let record_size = 5 + size + length as usize;
+        let record_crc = ptr.add(1).cast::<u32>().read_unaligned();
+        let (length, size) = read_uvarint_safe(ptr.add(5), src.len() - 5);
+        if size == usize::MAX {
+            return Err(ErrorLogParse::RecordLengthInvalid);
+        }
+        if length as usize > max_log_size {
+            return Err(ErrorLogParse::RecordLengthTooLarge);
+        }
+        if 5 + size + length as usize > src.len() {
+            return Err(ErrorLogParse::RecordNeedMore);
+        }
+        let off = 5 + size;
+        let record = slice::from_raw_parts(ptr.add(off), length as usize);
+        let check = crc32c::crc32c(record);
+        if check != record_crc {
+            return Err(ErrorLogParse::RecordCRCMismatch);
+        }
+        let record_size = 5 + size + length as usize;
 
-    Ok((record, slice::from_raw_parts(ptr.add(record_size), src.len() - record_size)))
+        Ok((
+            record,
+            slice::from_raw_parts(ptr.add(record_size), src.len() - record_size),
+        ))
+    }
 }
 
 /// Log parsing error states.

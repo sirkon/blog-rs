@@ -1,7 +1,7 @@
 use crate::level;
 use crate::log_rend::{render_go_duration, render_time};
 use crate::log_render_color::ColorProfile;
-use crate::value_kind::{PREDEFINED_KEYS, ValueKind};
+use crate::value_kind::{ValueKind, PREDEFINED_KEYS};
 use memchr::Memchr;
 use std::io::Read;
 use std::slice;
@@ -274,12 +274,12 @@ impl<'a> LogRender<'a> {
     }
 
     #[inline(always)]
-    pub(crate) fn render_go_duration(&mut self, dst: &mut Vec<u8>, nanos: u64, in_ctx: bool) {
+    pub(crate) fn render_go_duration(&mut self, dst: &mut Vec<u8>, nanos: u64, _in_ctx: bool) {
         render_go_duration(&mut self.itoa, dst, nanos);
     }
 
     #[inline(always)]
-    pub(crate) fn render_time(&mut self, dst: &mut Vec<u8>, nanos: i64, in_ctx: bool) {
+    pub(crate) fn render_time(&mut self, dst: &mut Vec<u8>, nanos: i64, _in_ctx: bool) {
         self.color_time(dst);
         render_time(&mut self.itoa, dst, nanos);
         self.color_reset(dst);
