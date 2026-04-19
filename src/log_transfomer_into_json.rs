@@ -10,14 +10,14 @@ use crate::log_transfomer_into_json_consts::{
     JSON_LOCATION, JSON_MESSAGE, JSON_STACKTRACE, JSON_TIME,
 };
 use crate::pointer_ext::PointerExt;
-use crate::transform_items::{
-    TransformBytes, TransformDuration, TransformIvar, TransformLiteral, TransformString,
+use crate::transform_json_items::{
+    TransformBytes, TransformDuration, TransformIntoJSONLiteral, TransformIvar, TransformString,
     TransformTime, TransformUvar,
 };
 use crate::value_kind::ValueKind;
+use crate::{level, log_parse, value_kind};
 use std::io::Read;
 use std::slice;
-use crate::{level, log_parse, value_kind};
 
 /// Transforms log record into pure JSON.
 pub struct LogTransfomer {
@@ -200,16 +200,16 @@ impl LogTransfomer {
         let mut is_embed_error = false;
 
         while off < cap {
-            if old {
-                dst = dst.append_byte(b',');
-            }
-            old = true;
             let kind = *ptr.add(off) as ValueKind;
             off += 1;
 
             // First match to filter out things that don't follow common key->value layout.
             match kind {
                 value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
+                    if old {
+                        dst = dst.append_byte(b',');
+                    }
+                    old = true;
                     dst = dst.append(b"\"CTX\":{");
                     old = false;
                     error_depth += 1;
@@ -219,16 +219,20 @@ impl LogTransfomer {
                     continue;
                 }
                 value_kind::NEW_NODE => {
+                    if old {
+                        dst = dst.append_byte(b',');
+                    }
+                    old = true;
                     let (length, size) = read_uvarint(ptr.add(off));
                     off += size;
                     self.fmtbuf.clear();
                     self.fmtbuf.extend_from_slice(b"NEW: ");
                     self.fmtbuf
                         .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
-                    off += length as usize;
                     if !is_embed_error {
                         self.err_frags.push((length as usize, off));
                     }
+                    off += length as usize;
                     dst = dst.append_escaped(self.fmtbuf.as_slice());
                     dst = dst.append(b":{");
                     error_depth += 1;
@@ -236,16 +240,20 @@ impl LogTransfomer {
                     continue;
                 }
                 value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
+                    if old {
+                        dst = dst.append_byte(b',');
+                    }
+                    old = true;
                     let (length, size) = read_uvarint(ptr.add(off));
                     off += size;
                     self.fmtbuf.clear();
                     self.fmtbuf.extend_from_slice(b"NEW: ");
                     self.fmtbuf
                         .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
-                    off += length as usize;
                     if !is_embed_error {
                         self.err_frags.push((length as usize, off));
                     }
+                    off += length as usize;
                     dst = dst.append_escaped(self.fmtbuf.as_slice());
                     dst = dst.append(b":{");
                     error_depth += 1;
@@ -262,12 +270,16 @@ impl LogTransfomer {
                     continue;
                 }
                 value_kind::LOCATION_NODE => {
+                    if old {
+                        dst = dst.append_byte(b',');
+                    }
+                    old = true;
                     dst = dst.append(JSON_ERROR_LOC);
                     let (mut length, mut size) = read_uvarint(ptr.add(off));
                     off += size;
                     self.fmtbuf.clear();
                     self.fmtbuf.reserve(length as usize * 8);
-                    dst = dst.append_escaped_ptr(ptr.add(off + size), length as usize);
+                    dst = dst.append_escaped_ptr(ptr.add(off), length as usize);
                     dst = dst.sub(1);
                     dst = dst.append_byte(b':');
                     off += length as usize;
@@ -278,6 +290,7 @@ impl LogTransfomer {
                     continue;
                 }
                 value_kind::GROUP_END => {
+                    old = true;
                     if error_depth == 0 {
                         dst = dst.append_byte(b'}');
                         continue;
@@ -287,6 +300,7 @@ impl LogTransfomer {
                         dst = dst.append_byte(b'}');
                         continue;
                     }
+                    dst = dst.append_byte(b'}').append_byte(b',');
                     dst = dst.append(JSON_ERROR_TXT);
                     if is_embed_error {
                         let (len, off) = err_text;
@@ -302,10 +316,15 @@ impl LogTransfomer {
                         }
                         dst = dst.append_escaped(self.fmtbuf.as_slice());
                     }
-                    dst = dst.append(b"}}");
+                    dst = dst.append(b"}");
                     continue;
                 }
-                _ => {}
+                _ => {
+                    if old {
+                        dst = dst.append_byte(b',');
+                    }
+                    old = true;
+                }
             }
 
             // Common layout it is.
@@ -447,15 +466,16 @@ impl LogTransfomer {
                 }
                 value_kind::ERROR => {
                     is_embed_error = false;
-                    old = true;
                     error_depth += 1;
                     dst = dst.append(JSON_ERROR_CTX);
+                    old = false;
+                    self.err_frags.clear();
                 }
                 value_kind::ERROR_EMBED => {
                     is_embed_error = true;
-                    old = true;
                     error_depth += 1;
                     dst = dst.append(JSON_ERROR_CTX);
+                    old = false;
                     let (len, size) = read_uvarint(ptr.add(off));
                     off += size;
                     err_text = (len as usize, off);
@@ -479,7 +499,7 @@ impl LogTransfomer {
         off: usize,
     ) -> (*mut u8, usize)
     where
-        T: TransformLiteral,
+        T: TransformIntoJSONLiteral,
     {
         unsafe { T::render(self, dst, ptr, off) }
     }
@@ -492,7 +512,7 @@ impl LogTransfomer {
         mut off: usize,
     ) -> (*mut u8, usize)
     where
-        T: TransformLiteral,
+        T: TransformIntoJSONLiteral,
     {
         unsafe {
             let (length, size) = read_uvarint(ptr.add(off));

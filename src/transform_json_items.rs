@@ -7,7 +7,7 @@ use crate::log_transfomer_into_json::LogTransfomer;
 use std::slice;
 use crate::pointer_ext::PointerExt;
 
-pub(crate) trait TransformLiteral {
+pub(crate) trait TransformIntoJSONLiteral {
     unsafe fn render(t: &mut LogTransfomer, dst: *mut u8, ptr: *const u8, off: usize)
     -> (*mut u8, usize);
 }
@@ -19,7 +19,7 @@ pub(crate) struct TransformIvar {}
 pub(crate) struct TransformUvar {}
 pub(crate) struct TransformBytes {}
 
-impl TransformLiteral for bool {
+impl TransformIntoJSONLiteral for bool {
     #[inline(always)]
     unsafe fn render(
         _t: &mut LogTransfomer,
@@ -40,7 +40,7 @@ impl TransformLiteral for bool {
     }
 }
 
-impl TransformLiteral for TransformTime {
+impl TransformIntoJSONLiteral for TransformTime {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -57,7 +57,7 @@ impl TransformLiteral for TransformTime {
     }
 }
 
-impl TransformLiteral for TransformDuration {
+impl TransformIntoJSONLiteral for TransformDuration {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -76,7 +76,7 @@ impl TransformLiteral for TransformDuration {
     }
 }
 
-impl TransformLiteral for TransformIvar {
+impl TransformIntoJSONLiteral for TransformIvar {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -91,7 +91,7 @@ impl TransformLiteral for TransformIvar {
     }
 }
 
-impl TransformLiteral for i64 {
+impl TransformIntoJSONLiteral for i64 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -108,7 +108,7 @@ impl TransformLiteral for i64 {
     }
 }
 
-impl TransformLiteral for i32 {
+impl TransformIntoJSONLiteral for i32 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -125,7 +125,7 @@ impl TransformLiteral for i32 {
     }
 }
 
-impl TransformLiteral for i16 {
+impl TransformIntoJSONLiteral for i16 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -142,7 +142,7 @@ impl TransformLiteral for i16 {
     }
 }
 
-impl TransformLiteral for i8 {
+impl TransformIntoJSONLiteral for i8 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -159,7 +159,7 @@ impl TransformLiteral for i8 {
     }
 }
 
-impl TransformLiteral for TransformUvar {
+impl TransformIntoJSONLiteral for TransformUvar {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -174,7 +174,7 @@ impl TransformLiteral for TransformUvar {
     }
 }
 
-impl TransformLiteral for u64 {
+impl TransformIntoJSONLiteral for u64 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -191,7 +191,7 @@ impl TransformLiteral for u64 {
     }
 }
 
-impl TransformLiteral for u32 {
+impl TransformIntoJSONLiteral for u32 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -208,7 +208,7 @@ impl TransformLiteral for u32 {
     }
 }
 
-impl TransformLiteral for u16 {
+impl TransformIntoJSONLiteral for u16 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -225,7 +225,7 @@ impl TransformLiteral for u16 {
     }
 }
 
-impl TransformLiteral for u8 {
+impl TransformIntoJSONLiteral for u8 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -242,7 +242,7 @@ impl TransformLiteral for u8 {
     }
 }
 
-impl TransformLiteral for f64 {
+impl TransformIntoJSONLiteral for f64 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -265,7 +265,7 @@ impl TransformLiteral for f64 {
     }
 }
 
-impl TransformLiteral for f32 {
+impl TransformIntoJSONLiteral for f32 {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,
@@ -288,7 +288,7 @@ impl TransformLiteral for f32 {
     }
 }
 
-impl TransformLiteral for TransformString {
+impl TransformIntoJSONLiteral for TransformString {
     #[inline(always)]
     unsafe fn render(
         _t: &mut LogTransfomer,
@@ -305,7 +305,7 @@ impl TransformLiteral for TransformString {
     }
 }
 
-impl TransformLiteral for TransformBytes {
+impl TransformIntoJSONLiteral for TransformBytes {
     #[inline(always)]
     unsafe fn render(
         t: &mut LogTransfomer,

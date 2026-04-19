@@ -66,7 +66,7 @@ mod test {
 
         unsafe {
             let mut dst: Vec<u8> = Vec::new();
-            // let mut render = LogTransfomer::new();
+            let mut render = LogTransfomer::new();
             // render.transform_json(&mut dst, rdata).unwrap();
             dst.push(b'\n');
 
@@ -80,6 +80,7 @@ mod test {
         let rdata = data.as_slice();
 
         let mut parser = LogParser::new();
+        let mut transfomer = LogTransfomer::new();
 
         unsafe {
             let mut render = LogRender::new(ColorProfile::light());
@@ -90,8 +91,11 @@ mod test {
 
             let mut dst: Vec<u8> = Vec::new();
             (&mut render).render(&mut dst, record);
-
             print!("{}", String::from_utf8_lossy(&dst));
+
+            dst.clear();
+            transfomer.transform_json(&mut dst, rdata).unwrap();
+            println!("{}", String::from_utf8_lossy(&dst));
         }
     }
 }

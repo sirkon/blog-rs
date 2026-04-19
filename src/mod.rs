@@ -19,7 +19,7 @@ mod log_transfomer_into_json;
 mod log_transfomer_into_json_consts;
 mod slice_items;
 mod test;
-mod transform_items;
+mod transform_json_items;
 mod value_kind;
 mod pointer_ext;
 mod itoa4;

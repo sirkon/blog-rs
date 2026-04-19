@@ -10,6 +10,6 @@ pub const JSON_LEVEL_UNKNOWN: &[u8] = b"UNKNOWN";
 pub const JSON_LOCATION: &[u8] = b"\"location\"";
 pub const JSON_MESSAGE: &[u8] = b"\"message\"";
 pub const JSON_STACKTRACE: &[u8] = b"\"stacktrace\"";
-pub const JSON_ERROR_CTX: &[u8] = b"{\"@ctx\":";
+pub const JSON_ERROR_CTX: &[u8] = b"{\"@ctx\":{";
 pub const JSON_ERROR_TXT: &[u8] = b"\"@txt\":";
 pub const JSON_ERROR_LOC: &[u8] = b"\"@loc\":";
