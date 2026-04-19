@@ -1,6 +1,6 @@
 use std::ptr::copy_nonoverlapping;
 use std::slice;
-use crate::itoa4::{append_itoa, append_utoa};
+use crate::itoa2::{append_itoa, append_utoa};
 
 pub(crate) trait PointerExt {
     unsafe fn append<T: AsRef<[u8]>>(self, s: T) -> *mut u8;

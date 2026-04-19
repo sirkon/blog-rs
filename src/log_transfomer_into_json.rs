@@ -1,7 +1,6 @@
 #![allow(unused_unsafe)]
 #![allow(unsafe_code)]
 
-use super::*;
 use crate::log_parse::{ErrorLogParse, log_parse_header, read_uvarint};
 use crate::log_rend::render_time;
 use crate::log_render::predefined_keys_safe;
@@ -18,6 +17,7 @@ use crate::transform_items::{
 use crate::value_kind::ValueKind;
 use std::io::Read;
 use std::slice;
+use crate::{level, log_parse, value_kind};
 
 /// Transforms log record into pure JSON.
 pub struct LogTransfomer {

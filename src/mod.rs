@@ -2,7 +2,6 @@
 #![allow(unsafe_code)]
 
 mod crc32custom;
-
 mod level;
 mod log_parse;
 mod log_parser;
@@ -24,6 +23,7 @@ mod transform_items;
 mod value_kind;
 mod pointer_ext;
 mod itoa4;
+mod itoa2;
 
 pub use log_parser::LogParser;
 pub use log_render::LogRender;
