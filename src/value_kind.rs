@@ -10,48 +10,50 @@ pub const JUST_CONTEXT_NODE: ValueKind = 4;
 pub const JUST_CONTEXT_INHERITED_NODE: ValueKind = 5;
 pub const LOCATION_NODE: ValueKind = 6;
 pub const FOREIGN_ERROR_TEXT: ValueKind = 7;
-pub const FOREIGN_ERROR_FORMAT: ValueKind = 8;
-pub const PHANTOM_CONTEXT_NODE: ValueKind = 10;
+pub const PHANTOM_CONTEXT_NODE: ValueKind = 8;
+pub const GROUP: ValueKind = 9;
+pub const ERROR: ValueKind = 10;
+pub const ERROR_EMBED: ValueKind = 11;
+pub const GROUP_END: ValueKind = 12;
 
 // --- GROUP 2: Payload / base types (32+) ---
 pub const BOOL: ValueKind = 32;
 pub const TIME: ValueKind = 33;
 pub const DURATION: ValueKind = 34;
 pub const I: ValueKind = 35;
-pub const I8: ValueKind = 36;
-pub const I16: ValueKind = 37;
-pub const I32: ValueKind = 38;
-pub const I64: ValueKind = 39;
-pub const U: ValueKind = 40;
-pub const U8: ValueKind = 41;
-pub const U16: ValueKind = 42;
-pub const U32: ValueKind = 43;
-pub const U64: ValueKind = 44;
-pub const FLOAT32: ValueKind = 45;
-pub const FLOAT64: ValueKind = 46;
-pub const STRING: ValueKind = 47;
-pub const BYTES: ValueKind = 48;
-pub const ERROR_RAW: ValueKind = 49;
+pub const IVAR: ValueKind = 36;
+pub const I8: ValueKind = 37;
+pub const I16: ValueKind = 38;
+pub const I32: ValueKind = 39;
+pub const I64: ValueKind = 40;
+pub const U: ValueKind = 41;
+pub const UVAR: ValueKind = 42;
+pub const U8: ValueKind = 43;
+pub const U16: ValueKind = 44;
+pub const U32: ValueKind = 45;
+pub const U64: ValueKind = 46;
+pub const FLOAT32: ValueKind = 47;
+pub const FLOAT64: ValueKind = 48;
+pub const STRING: ValueKind = 49;
+pub const BYTES: ValueKind = 50;
+pub const ERROR_RAW: ValueKind = 51;
 
-// --- GROUP 3: Complex structs and slices (64+) ---
-pub const ERROR: ValueKind = 64;
-pub const ERROR_EMBED: ValueKind = 65;
-pub const GROUP: ValueKind = 66;
+// --- GROUP 3: Slices (64+) ---
 
-pub const SLICE_BOOL: ValueKind = 70;
-pub const SLICE_I: ValueKind = 71;
-pub const SLICE_I8: ValueKind = 72;
-pub const SLICE_I16: ValueKind = 73;
-pub const SLICE_I32: ValueKind = 74;
-pub const SLICE_I64: ValueKind = 75;
-pub const SLICE_U: ValueKind = 76;
-pub const SLICE_U8: ValueKind = 77;
-pub const SLICE_U16: ValueKind = 78;
-pub const SLICE_U32: ValueKind = 79;
-pub const SLICE_U64: ValueKind = 80;
-pub const SLICE_F32: ValueKind = 81;
-pub const SLICE_F64: ValueKind = 82;
-pub const SLICE_STRING: ValueKind = 83;
+pub const SLICE_BOOL: ValueKind = 64;
+pub const SLICE_I: ValueKind = 65;
+pub const SLICE_I8: ValueKind = 66;
+pub const SLICE_I16: ValueKind = 67;
+pub const SLICE_I32: ValueKind = 68;
+pub const SLICE_I64: ValueKind = 69;
+pub const SLICE_U: ValueKind = 70;
+pub const SLICE_U8: ValueKind = 71;
+pub const SLICE_U16: ValueKind = 72;
+pub const SLICE_U32: ValueKind = 73;
+pub const SLICE_U64: ValueKind = 74;
+pub const SLICE_F32: ValueKind = 75;
+pub const SLICE_F64: ValueKind = 76;
+pub const SLICE_STRING: ValueKind = 77;
 
 pub const MAX: ValueKind = 255;
 
@@ -62,6 +64,20 @@ pub const PREDEFINED_NAME_LOCATION: ValueKind = 3 << 8;
 // There're ValueKind values at 256 and further to represent [Attr] with predefined keys, where their
 // lowest byte represents a kind and the upper 7 bytes refer a key index.
 
+pub(crate) fn is_group_start(k: ValueKind) -> bool {
+    match k {
+        NEW_NODE
+        | WRAP_NODE
+        | WRAP_INHERITED_NODE
+        | JUST_CONTEXT_NODE
+        | JUST_CONTEXT_INHERITED_NODE
+        | GROUP
+        | ERROR
+        | ERROR_EMBED => true,
+        _ => false,
+    }
+}
+
 pub fn string(k: ValueKind) -> String {
     match k & 0xFF {
         NEW_NODE => "error.New".to_string(),
@@ -71,7 +87,6 @@ pub fn string(k: ValueKind) -> String {
         JUST_CONTEXT_INHERITED_NODE => "error.Ctx(over foreign)".to_string(),
         LOCATION_NODE => "location".to_string(),
         FOREIGN_ERROR_TEXT => "error.(foreign text)".to_string(),
-        FOREIGN_ERROR_FORMAT => "error.(foreign format)".to_string(),
         PHANTOM_CONTEXT_NODE => "errors.Ctx(phantom)".to_string(),
         BOOL => "bool".to_string(),
         TIME => "time.UnixNano".to_string(),

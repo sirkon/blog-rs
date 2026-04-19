@@ -16,7 +16,7 @@ pub fn fast_crc32c(crc: u32, data: &[u8]) -> u32 {
 
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-unsafe fn crc32c_aarch64_hw(mut crc: u32, data: &[u8]) -> u32 {
+unsafe fn crc32c_aarch64_hw(mut crc: u32, data: &[u8]) -> u32 { 
     use core::arch::aarch64::{__crc32cb, __crc32cd, __crc32ch, __crc32cw};
     
     let mut ptr = data.as_ptr();

@@ -1,3 +1,6 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use crate::LogRender;
 
 pub(crate) struct ColorProfile {

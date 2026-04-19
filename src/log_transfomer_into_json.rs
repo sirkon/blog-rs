@@ -1,30 +1,31 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use super::*;
-use crate::log_parse::{log_parse_header, read_uvarint, CtxParsingState, ErrorLogParse};
+use crate::log_parse::{ErrorLogParse, log_parse_header, read_uvarint};
 use crate::log_rend::render_time;
-use crate::log_rend_json::{
-    render_json_string, render_json_string_content_ptr, render_json_string_ptr,
-    render_safe_json_string,
-};
+use crate::log_render::predefined_keys_safe;
 use crate::log_transfomer_into_json_consts::{
     JSON_ERROR_CTX, JSON_ERROR_LOC, JSON_ERROR_TXT, JSON_LEVEL, JSON_LEVEL_DEBUG, JSON_LEVEL_ERROR,
     JSON_LEVEL_INFO, JSON_LEVEL_PANIC, JSON_LEVEL_TRACE, JSON_LEVEL_UNKNOWN, JSON_LEVEL_WARN,
     JSON_LOCATION, JSON_MESSAGE, JSON_STACKTRACE, JSON_TIME,
 };
+use crate::pointer_ext::PointerExt;
 use crate::transform_items::{
-    TransformBytes, TransformDuration, TransformLiteral, TransformString, TransformTime,
+    TransformBytes, TransformDuration, TransformIvar, TransformLiteral, TransformString,
+    TransformTime, TransformUvar,
 };
+use crate::value_kind::ValueKind;
 use std::io::Read;
 use std::slice;
 
 /// Transforms log record into pure JSON.
 pub struct LogTransfomer {
-    pub(crate) itoa:       itoa::Buffer,
-    pub(crate) ryu:        ryu::Buffer,
-    pub(crate) buf:        Vec<u8>,
-    pub(crate) err_frags:  Vec<(usize, usize)>,
-    pub(crate) grp_caps:   Vec<(usize, usize)>,
-    pub(crate) err_caps:   Vec<usize>,
-    pub(crate) prs_states: Vec<CtxParsingState>,
+    pub(crate) itoa:      itoa::Buffer,
+    pub(crate) ryu:       ryu::Buffer,
+    pub(crate) buf:       Vec<u8>,
+    pub(crate) err_frags: Vec<(usize, usize)>,
+    pub(crate) fmtbuf:    Vec<u8>,
 
     pub(crate) max_log_size: usize,
     pub(crate) format_time:  bool,
@@ -33,13 +34,11 @@ pub struct LogTransfomer {
 impl LogTransfomer {
     pub fn new() -> Self {
         Self {
-            itoa:       itoa::Buffer::new(),
-            ryu:        ryu::Buffer::new(),
-            buf:        Vec::with_capacity(4096),
-            err_frags:  Vec::with_capacity(16),
-            grp_caps:   Vec::with_capacity(16),
-            err_caps:   Vec::with_capacity(16),
-            prs_states: Vec::with_capacity(16),
+            itoa:      itoa::Buffer::new(),
+            ryu:       ryu::Buffer::new(),
+            buf:       Vec::with_capacity(4096),
+            err_frags: Vec::with_capacity(16),
+            fmtbuf:    Vec::with_capacity(4096),
 
             max_log_size: 1 * 1024 * 1024,
             format_time:  false,
@@ -62,7 +61,7 @@ impl LogTransfomer {
             let version = u16::from_le(ptr.cast::<u16>().read_unaligned());
             match version {
                 1 => {
-                    self.transform_json_v1(dst, ptr.add(2), record.len() - 2);
+                    self.transform_json_v1(dst, ptr.add(2), record.len() - 2)?;
                 }
                 _ => {
                     return Err(log_parse::ErrorLogParse::RecordVersionNotSupported(version));
@@ -74,78 +73,83 @@ impl LogTransfomer {
     }
 
     #[inline(always)]
-    unsafe fn transform_json_v1(&mut self, dst: &mut Vec<u8>, ptr: *const u8, cap: usize) {
+    unsafe fn transform_json_v1(
+        &mut self,
+        dst: &mut Vec<u8>,
+        ptr: *const u8,
+        cap: usize,
+    ) -> Result<(), ErrorLogParse> {
+        dst.reserve(cap * 8);
+        let porig = dst.as_mut_ptr();
+        let mut pdst = dst.as_mut_ptr();
         unsafe {
             self.err_frags.clear();
-            self.grp_caps.clear();
-            self.err_caps.clear();
 
-            dst.push(b'{');
+            pdst = pdst.append_byte(b'{');
 
             // Time.
-            render_safe_json_string(dst, JSON_TIME);
-            dst.push(b':');
+            pdst = pdst.append(JSON_TIME);
+            pdst = pdst.append_byte(b':');
             let time = ptr.cast::<u64>().read_unaligned();
             if self.format_time {
-                dst.push(b'"');
-                render_time(&mut self.itoa, dst, time as i64);
-                dst.push(b'"');
+                pdst = pdst.append_byte(b'"');
+                self.fmtbuf.clear();
+                render_time(&mut self.itoa, &mut self.fmtbuf, time as i64);
+                pdst = pdst.append(self.fmtbuf.as_slice());
+                pdst = pdst.append_byte(b'"');
             } else {
-                let s = self.itoa.format(time);
-                dst.extend_from_slice(s.as_bytes());
+                pdst = pdst.append_utoa(time);
             }
-            dst.push(b',');
+            pdst = pdst.append_byte(b',');
 
             // Level.
-            render_safe_json_string(dst, JSON_LEVEL);
-            dst.push(b':');
+            pdst = pdst.append(JSON_LEVEL);
+            pdst = pdst.append_byte(b':');
             let lvl = *ptr.add(8);
             let mut is_panic = false;
             match lvl {
                 level::TRACE => {
-                    render_safe_json_string(dst, JSON_LEVEL_TRACE);
+                    pdst = pdst.append(JSON_LEVEL_TRACE);
                 }
                 level::DEBUG => {
-                    render_safe_json_string(dst, JSON_LEVEL_DEBUG);
+                    pdst = pdst.append(JSON_LEVEL_DEBUG);
                 }
                 level::INFO => {
-                    render_safe_json_string(dst, JSON_LEVEL_INFO);
+                    pdst = pdst.append(JSON_LEVEL_INFO);
                 }
                 level::WARN => {
-                    render_safe_json_string(dst, JSON_LEVEL_WARN);
+                    pdst = pdst.append(JSON_LEVEL_WARN);
                 }
                 level::ERROR => {
-                    render_safe_json_string(dst, JSON_LEVEL_ERROR);
+                    pdst = pdst.append(JSON_LEVEL_ERROR);
                 }
                 level::PANIC => {
                     is_panic = true;
-                    render_safe_json_string(dst, JSON_LEVEL_PANIC);
+                    pdst = pdst.append(JSON_LEVEL_PANIC);
                 }
                 _ => {
-                    dst.push(b'"');
-                    dst.extend_from_slice(JSON_LEVEL_UNKNOWN);
-                    dst.push(b'(');
+                    pdst = pdst.append_byte(b'"');
+                    pdst = pdst.append(JSON_LEVEL_UNKNOWN);
+                    pdst = pdst.append_byte(b'(');
                     let s = self.itoa.format(lvl);
-                    dst.extend_from_slice(s.as_bytes());
-                    dst.push(b')');
-                    dst.push(b'"');
+                    pdst = pdst.append(s);
+                    pdst = pdst.append_byte(b')');
+                    pdst = pdst.append_byte(b'"');
                 }
             }
-            dst.push(b',');
+            pdst = pdst.append_byte(b',');
 
             // May be location.
             let off: usize = if *ptr.add(9) != 0 {
-                render_safe_json_string(dst, JSON_LOCATION);
-                dst.push(b':');
-                dst.push(b'"');
+                pdst = pdst.append(JSON_LOCATION);
+                pdst = pdst.append_byte(b':');
+                pdst = pdst.append_byte(b'"');
                 let (length, size) = read_uvarint(ptr.add(9));
-                render_json_string_content_ptr(dst, ptr.add(9 + size), length as usize);
+                pdst = pdst.append_escaped_ptr(ptr.add(9 + size), length as usize);
                 let off = 9 + size + length as usize;
                 let (line, size) = read_uvarint(ptr.add(off));
-                let s = self.itoa.format(line);
-                dst.extend_from_slice(s.as_bytes());
-                dst.push(b'"');
-                dst.push(b',');
+                pdst = pdst.append_utoa(line);
+                pdst = pdst.append_byte(b',');
 
                 off + size
             } else {
@@ -155,12 +159,11 @@ impl LogTransfomer {
             // Message
             let (length, size) = read_uvarint(ptr.add(off));
             if !is_panic {
-                render_safe_json_string(dst, JSON_MESSAGE);
-                dst.push(b':');
-                render_json_string_ptr(dst, ptr.add(off + size), length as usize);
+                pdst = pdst.append(JSON_MESSAGE);
+                pdst = pdst.append_byte(b':');
+                pdst = pdst.append_escaped_ptr(ptr.add(off + size), length as usize);
             } else {
-                render_safe_json_string(dst, JSON_STACKTRACE);
-                dst.push(b':');
+                pdst = pdst.append(JSON_STACKTRACE).append_byte(b':');
 
                 // Gunzip stacktrace
                 self.buf.clear();
@@ -173,383 +176,308 @@ impl LogTransfomer {
                     }
                 };
 
-                render_json_string(dst, self.buf.as_slice());
+                pdst = pdst.append(self.buf.as_slice());
             }
 
             // Context.
-            self.transform_json_ctx_v1(dst, ptr, off + size + length as usize, cap);
-            dst.push(b'}');
+            pdst = self.transform_json_ctx_v1(pdst, ptr, off + size + length as usize, cap)?;
+            pdst = pdst.append_byte(b'}');
+            dst.set_len(dst.len() + pdst.offset_from(porig) as usize);
+            Ok(())
         }
     }
 
     unsafe fn transform_json_ctx_v1(
         &mut self,
-        dst: &mut Vec<u8>,
+        mut dst: *mut u8,
         ptr: *const u8,
         mut off: usize,
-        mut cap: usize,
-    ) {
-        unsafe {
-            let mut old = true;
-            let mut on_error_stage = false;
-            let mut on_embed_error = false;
-            let mut group_off: usize = 0;
-            let mut parsing_state = CtxParsingState::Normal;
-            let mut group_cap: usize = 0;
+        cap: usize,
+    ) -> Result<*mut u8, ErrorLogParse> {
+        let mut error_depth = 0;
+        let mut err_text = (0usize, 0usize);
+        let mut old = true;
+        let mut is_embed_error = false;
 
-            loop {
-                group_off += 1;
+        while off < cap {
+            if old {
+                dst = dst.append_byte(b',');
+            }
+            old = true;
+            let kind = *ptr.add(off) as ValueKind;
+            off += 1;
 
-                match parsing_state {
-                    CtxParsingState::Normal => {
-                        if off >= cap {
-                            return;
-                        }
-                    }
-
-                    CtxParsingState::Group => {
-                        if group_off > group_cap {
-                            old = true;
-                            dst.push(b'}');
-                            if self.prs_states.is_empty() {
-                                return;
-                            }
-
-                            parsing_state = self.prs_states.pop().unwrap();
-                            if parsing_state == CtxParsingState::Group {
-                                (group_off, group_cap) = self.grp_caps.pop().unwrap();
-                            }
-                            continue;
-                        }
-                    }
-
-                    CtxParsingState::Error => {
-                        if off >= cap {
-                            dst.push(b'}');
-                            dst.push(b'}');
-                            dst.push(b',');
-                            render_safe_json_string(dst, JSON_ERROR_TXT);
-                            dst.push(b':');
-                            dst.push(b'"');
-                            for (i, (length, off)) in self.err_frags.iter().rev().enumerate() {
-                                if i > 0 {
-                                    dst.push(b':');
-                                    dst.push(b' ');
-                                }
-                                render_json_string_content_ptr(dst, ptr.add(*off), *length);
-                            }
-                            dst.push(b'"');
-                            dst.push(b'}');
-                            old = true;
-
-                            cap = self.err_caps.pop().unwrap();
-                            parsing_state = self.prs_states.pop().unwrap();
-                            continue;
-                        }
-                    }
-
-                    CtxParsingState::ErrorEmbed => {
-                        if off >= cap {
-                            dst.push(b'}');
-                            dst.push(b'}');
-                            dst.push(b'}');
-                            old = true;
-                            cap = self.err_caps.pop().unwrap();
-                            parsing_state = self.prs_states.pop().unwrap();
-                            continue;
-                        }
-                    }
+            // First match to filter out things that don't follow common key->value layout.
+            match kind {
+                value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
+                    dst = dst.append(b"\"CTX\":{");
+                    old = false;
+                    error_depth += 1;
+                    continue;
                 }
-
-                // Get and check kind.
-                let kind = ptr.add(off).cast::<u8>().read_unaligned() as value_kind::ValueKind;
-                off += 1;
-                match kind {
-                    value_kind::NEW_NODE => {
-                        if on_error_stage {
-                            dst.push(b'}');
-                            dst.push(b',');
-                        } else if old {
-                            dst.push(b',');
-                        }
-                        on_error_stage = true;
-                        dst.extend_from_slice(b"\"NEW: ");
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        render_json_string_content_ptr(dst, ptr.add(off + size), length as usize);
-                        if !on_embed_error {
-                            self.err_frags.push((length as usize, off + size));
-                        }
-                        off += size + length as usize;
-                        dst.extend_from_slice(b"\":{");
-                        old = false;
-                        continue;
-                    }
-                    value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
-                        if on_error_stage {
-                            dst.push(b'}');
-                            dst.push(b',');
-                        } else if old {
-                            dst.push(b',');
-                        }
-                        on_error_stage = true;
-                        dst.extend_from_slice(b"\"WRAP: ");
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        render_json_string_content_ptr(dst, ptr.add(off + size), length as usize);
-                        if !on_embed_error {
-                            self.err_frags.push((length as usize, off + size));
-                        }
-                        off += size + length as usize;
-                        dst.extend_from_slice(b"\":{");
-                        old = false;
-                        continue;
-                    }
-                    value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
-                        old = true;
-                        if on_error_stage {
-                            dst.push(b'}');
-                            dst.push(b',');
-                        } else if old {
-                            dst.push(b',');
-                        }
-                        dst.extend_from_slice(b"\"CTX\":{");
-                        old = false;
-                        continue;
-                    }
-                    value_kind::LOCATION_NODE => {
-                        if old {
-                            dst.push(b',');
-                        }
-                        old = true;
-                        render_safe_json_string(dst, JSON_ERROR_LOC);
-                        dst.push(b':');
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        dst.push(b'"');
-                        render_json_string_content_ptr(dst, ptr.add(off + size), length as usize);
-                        dst.push(b':');
-                        off += size + length as usize;
-                        let (line, line_size) = read_uvarint(ptr.add(off));
-                        off += line_size;
-                        let s = self.itoa.format(line);
-                        dst.extend_from_slice(s.as_bytes());
-                        dst.push(b'"');
-                        continue;
-                    }
-                    value_kind::FOREIGN_ERROR_TEXT => {
-                        let (lenght, size) = read_uvarint(ptr.add(off));
-                        self.err_frags.push((lenght as usize, off + size));
-                        off += size + lenght as usize;
-                        continue;
-                    }
-                    value_kind::PHANTOM_CONTEXT_NODE => {
-                        if on_error_stage {
-                            dst.push(b'}');
-                            old = true;
-                        }
-                        continue;
-                    }
-                    _ => {}
+                value_kind::PHANTOM_CONTEXT_NODE => {
+                    continue;
                 }
+                value_kind::NEW_NODE => {
+                    let (length, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    self.fmtbuf.clear();
+                    self.fmtbuf.extend_from_slice(b"NEW: ");
+                    self.fmtbuf
+                        .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
+                    off += length as usize;
+                    if !is_embed_error {
+                        self.err_frags.push((length as usize, off));
+                    }
+                    dst = dst.append_escaped(self.fmtbuf.as_slice());
+                    dst = dst.append(b":{");
+                    error_depth += 1;
+                    old = false;
+                    continue;
+                }
+                value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
+                    let (length, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    self.fmtbuf.clear();
+                    self.fmtbuf.extend_from_slice(b"NEW: ");
+                    self.fmtbuf
+                        .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
+                    off += length as usize;
+                    if !is_embed_error {
+                        self.err_frags.push((length as usize, off));
+                    }
+                    dst = dst.append_escaped(self.fmtbuf.as_slice());
+                    dst = dst.append(b":{");
+                    error_depth += 1;
+                    old = false;
+                    continue;
+                }
+                value_kind::FOREIGN_ERROR_TEXT => {
+                    let (length, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    if !is_embed_error {
+                        self.err_frags.push((length as usize, off));
+                    }
+                    off += length as usize;
+                    continue;
+                }
+                value_kind::LOCATION_NODE => {
+                    dst = dst.append(JSON_ERROR_LOC);
+                    let (mut length, mut size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    self.fmtbuf.clear();
+                    self.fmtbuf.reserve(length as usize * 8);
+                    dst = dst.append_escaped_ptr(ptr.add(off + size), length as usize);
+                    dst = dst.sub(1);
+                    dst = dst.append_byte(b':');
+                    off += length as usize;
+                    (length, size) = read_uvarint(ptr.add(off));
+                    dst = dst.append_utoa(length);
+                    dst = dst.append_byte(b'"');
+                    off += size;
+                    continue;
+                }
+                value_kind::GROUP_END => {
+                    if error_depth == 0 {
+                        dst = dst.append_byte(b'}');
+                        continue;
+                    }
+                    error_depth -= 1;
+                    if error_depth > 0 {
+                        dst = dst.append_byte(b'}');
+                        continue;
+                    }
+                    dst = dst.append(JSON_ERROR_TXT);
+                    if is_embed_error {
+                        let (len, off) = err_text;
+                        dst = dst.append_escaped_ptr(ptr.add(off), len);
+                    } else {
+                        self.fmtbuf.clear();
+                        for (i, (len, off)) in self.err_frags.iter().rev().enumerate() {
+                            if i > 0 {
+                                self.fmtbuf.extend_from_slice(b": ")
+                            }
+                            self.fmtbuf
+                                .extend_from_slice(slice::from_raw_parts(ptr.add(*off), *len));
+                        }
+                        dst = dst.append_escaped(self.fmtbuf.as_slice());
+                    }
+                    dst = dst.append(b"}}");
+                    continue;
+                }
+                _ => {}
+            }
 
-                // Now, the key. Whatever it actually is. Only those above doesn't have it in their ways.
+            // Common layout it is.
+
+            // Write key.
+            let mut key_len: usize = 0;
+            let mut key_off: usize = 0;
+            let v = *(ptr.add(off));
+            if v != 0 {
                 let (length, size) = read_uvarint(ptr.add(off));
-                if old {
-                    dst.push(b',');
-                }
-                old = true;
-                render_json_string_ptr(dst, ptr.add(off + size), length as usize);
+                key_len = length as usize;
+                key_off = (off + size);
                 off += size + length as usize;
-                dst.push(b':');
-                match kind {
-                    value_kind::NEW_NODE
-                    | value_kind::WRAP_NODE
-                    | value_kind::WRAP_INHERITED_NODE
-                    | value_kind::JUST_CONTEXT_NODE
-                    | value_kind::JUST_CONTEXT_INHERITED_NODE
-                    | value_kind::LOCATION_NODE
-                    | value_kind::FOREIGN_ERROR_TEXT
-                    | value_kind::FOREIGN_ERROR_FORMAT => {
-                        // Already handled. We list all possible nodes to have a proper debug further.
+                dst = dst.append_escaped_ptr(ptr.add(key_off), key_len);
+            } else {
+                let (length, size) = read_uvarint(ptr.add(off + 1));
+                key_len = 0;
+                key_off = length as usize;
+                match predefined_keys_safe(key_off as ValueKind) {
+                    Ok(v) => {
+                        dst = dst.append_quoted(v);
                     }
-
-                    value_kind::BOOL => {
-                        off = self.render_json::<bool>(dst, ptr, off);
+                    Err(_) => {
+                        return Err(ErrorLogParse::RecordContextNodePredefinedKeyUnknown(
+                            key_off as u64,
+                        ));
                     }
+                }
+                off += size + 1;
+            }
+            dst = dst.append_byte(b':');
 
-                    value_kind::TIME => {
-                        off = self.render_json::<TransformTime>(dst, ptr, off);
-                    }
+            // Write value.
+            match kind {
+                // These values will not just be shown here.
+                //  value_kind::JUST_CONTEXT_NODE
+                //  | value_kind::JUST_CONTEXT_INHERITED_NODE
+                //  | value_kind::NEW_NODE
+                //  | value_kind::WRAP_NODE
+                //  | value_kind::WRAP_INHERITED_NODE
+                //  | value_kind::FOREIGN_ERROR_TEXT
+                //  | value_kind::LOCATION_NODE
+                //  | value_kind::GROUP_END
+                //  | value_kind::PHANTOM_CONTEXT_NODE => {}
+                value_kind::BOOL => {
+                    (dst, off) = self.render_json::<bool>(dst, ptr, off);
+                }
+                value_kind::TIME => {
+                    (dst, off) = self.render_json::<TransformTime>(dst, ptr, off);
+                }
+                value_kind::DURATION => {
+                    (dst, off) = self.render_json::<TransformDuration>(dst, ptr, off);
+                }
+                value_kind::I | value_kind::I64 => {
+                    (dst, off) = self.render_json::<i64>(dst, ptr, off);
+                }
+                value_kind::IVAR => {
+                    (dst, off) = self.render_json::<TransformIvar>(dst, ptr, off);
+                }
+                value_kind::I8 => {
+                    (dst, off) = self.render_json::<i8>(dst, ptr, off);
+                }
+                value_kind::I16 => {
+                    (dst, off) = self.render_json::<i16>(dst, ptr, off);
+                }
+                value_kind::I32 => {
+                    (dst, off) = self.render_json::<i32>(dst, ptr, off);
+                }
+                value_kind::U | value_kind::U64 => {
+                    (dst, off) = self.render_json::<u64>(dst, ptr, off);
+                }
+                value_kind::UVAR => {
+                    (dst, off) = self.render_json::<TransformUvar>(dst, ptr, off);
+                }
+                value_kind::U8 => {
+                    (dst, off) = self.render_json::<u8>(dst, ptr, off);
+                }
+                value_kind::U16 => {
+                    (dst, off) = self.render_json::<u16>(dst, ptr, off);
+                }
+                value_kind::U32 => {
+                    (dst, off) = self.render_json::<u32>(dst, ptr, off);
+                }
+                value_kind::FLOAT32 => {
+                    (dst, off) = self.render_json::<f32>(dst, ptr, off);
+                }
+                value_kind::FLOAT64 => {
+                    (dst, off) = self.render_json::<f64>(dst, ptr, off);
+                }
+                value_kind::STRING => {
+                    (dst, off) = self.render_json::<TransformString>(dst, ptr, off);
+                }
+                value_kind::BYTES => {
+                    (dst, off) = self.render_json::<TransformBytes>(dst, ptr, off);
+                }
+                value_kind::ERROR_RAW => {
+                    (dst, off) = self.render_json::<TransformString>(dst, ptr, off);
+                }
+                value_kind::SLICE_BOOL => {
+                    (dst, off) = self.render_slice_json::<bool>(dst, ptr, off);
+                }
+                value_kind::SLICE_I | value_kind::SLICE_I64 => {
+                    (dst, off) = self.render_slice_json::<i64>(dst, ptr, off);
+                }
+                value_kind::SLICE_I8 => {
+                    (dst, off) = self.render_slice_json::<i8>(dst, ptr, off);
+                }
+                value_kind::SLICE_I16 => {
+                    (dst, off) = self.render_slice_json::<i16>(dst, ptr, off);
+                }
+                value_kind::SLICE_I32 => {
+                    (dst, off) = self.render_slice_json::<i32>(dst, ptr, off);
+                }
+                value_kind::SLICE_U | value_kind::SLICE_U64 => {
+                    (dst, off) = self.render_slice_json::<u64>(dst, ptr, off);
+                }
+                value_kind::SLICE_U8 => {
+                    (dst, off) = self.render_slice_json::<u8>(dst, ptr, off);
+                }
+                value_kind::SLICE_U16 => {
+                    (dst, off) = self.render_slice_json::<u16>(dst, ptr, off);
+                }
+                value_kind::SLICE_U32 => {
+                    (dst, off) = self.render_slice_json::<u32>(dst, ptr, off);
+                }
+                value_kind::SLICE_F32 => {
+                    (dst, off) = self.render_slice_json::<f32>(dst, ptr, off);
+                }
+                value_kind::SLICE_F64 => {
+                    (dst, off) = self.render_slice_json::<f64>(dst, ptr, off);
+                }
+                value_kind::SLICE_STRING => {
+                    (dst, off) = self.render_slice_json::<TransformString>(dst, ptr, off);
+                }
 
-                    value_kind::DURATION => {
-                        off = self.render_json::<TransformDuration>(dst, ptr, off);
-                    }
+                value_kind::GROUP => {
+                    old = false;
+                    dst = dst.append_byte(b'{');
+                }
+                value_kind::ERROR => {
+                    is_embed_error = false;
+                    old = true;
+                    error_depth += 1;
+                    dst = dst.append(JSON_ERROR_CTX);
+                }
+                value_kind::ERROR_EMBED => {
+                    is_embed_error = true;
+                    old = true;
+                    error_depth += 1;
+                    dst = dst.append(JSON_ERROR_CTX);
+                    let (len, size) = read_uvarint(ptr.add(off));
+                    off += size;
+                    err_text = (len as usize, off);
+                    off += len as usize;
+                }
 
-                    value_kind::I | value_kind::I64 => {
-                        off = self.render_json::<i64>(dst, ptr, off);
-                    }
-
-                    value_kind::I8 => {
-                        off = self.render_json::<i8>(dst, ptr, off);
-                    }
-
-                    value_kind::I16 => {
-                        off = self.render_json::<i16>(dst, ptr, off);
-                    }
-
-                    value_kind::I32 => {
-                        off = self.render_json::<i32>(dst, ptr, off);
-                    }
-
-                    value_kind::U | value_kind::U64 => {
-                        off = self.render_json::<u64>(dst, ptr, off);
-                    }
-
-                    value_kind::U8 => {
-                        off = self.render_json::<u8>(dst, ptr, off);
-                    }
-
-                    value_kind::U16 => {
-                        off = self.render_json::<u16>(dst, ptr, off);
-                    }
-
-                    value_kind::U32 => {
-                        off = self.render_json::<u32>(dst, ptr, off);
-                    }
-
-                    value_kind::FLOAT32 => {
-                        off = self.render_json::<f32>(dst, ptr, off);
-                    }
-
-                    value_kind::FLOAT64 => {
-                        off = self.render_json::<f64>(dst, ptr, off);
-                    }
-
-                    value_kind::STRING | value_kind::ERROR_RAW => {
-                        off = self.render_json::<TransformString>(dst, ptr, off);
-                    }
-
-                    value_kind::BYTES => {
-                        off = self.render_json::<TransformBytes>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_BOOL => {
-                        off = self.render_slice_json::<bool>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_I | value_kind::SLICE_I64 => {
-                        off = self.render_slice_json::<i64>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_I8 => {
-                        off = self.render_slice_json::<i8>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_I16 => {
-                        off = self.render_slice_json::<i16>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_I32 => {
-                        off = self.render_slice_json::<i32>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_U | value_kind::SLICE_U64 => {
-                        off = self.render_slice_json::<u64>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_U8 => {
-                        off = self.render_slice_json::<u8>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_U16 => {
-                        off = self.render_slice_json::<u16>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_U32 => {
-                        off = self.render_slice_json::<u32>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_F32 => {
-                        off = self.render_slice_json::<f32>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_F64 => {
-                        off = self.render_slice_json::<f64>(dst, ptr, off);
-                    }
-
-                    value_kind::SLICE_STRING => {
-                        off = self.render_slice_json::<TransformString>(dst, ptr, off);
-                    }
-
-                    value_kind::ERROR => {
-                        on_embed_error = false;
-                        on_error_stage = false;
-                        self.prs_states.push(parsing_state);
-                        self.err_caps.push(cap);
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        dst.push(b'{');
-                        render_safe_json_string(dst, JSON_ERROR_CTX);
-                        dst.push(b':');
-                        dst.push(b'{');
-                        cap = off + size + length as usize;
-                        off += size;
-                        parsing_state = CtxParsingState::Error;
-                        old = false;
-                    }
-
-                    value_kind::ERROR_EMBED => {
-                        on_embed_error = true;
-                        on_error_stage = false;
-                        self.prs_states.push(parsing_state);
-                        self.err_caps.push(cap);
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        dst.push(b'{');
-                        render_safe_json_string(dst, JSON_ERROR_TXT);
-                        dst.push(b':');
-                        render_json_string_ptr(dst, ptr.add(off + size), length as usize);
-                        off += size + length as usize;
-                        dst.push(b',');
-                        render_safe_json_string(dst, JSON_ERROR_CTX);
-                        dst.push(b':');
-                        dst.push(b'{');
-
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        cap = off + size + length as usize;
-                        off += size;
-                        parsing_state = CtxParsingState::ErrorEmbed;
-                        old = false
-                    }
-
-                    value_kind::GROUP => {
-                        group_off += 1;
-                        dst.push(b'{');
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        off += size;
-                        if length == 0 {
-                            dst.push(b'}');
-                            old = true;
-                            continue;
-                        }
-                        self.prs_states.push(parsing_state);
-                        if parsing_state == CtxParsingState::Group {
-                            self.grp_caps.push((group_off, group_cap));
-                        }
-                        group_off = 0;
-                        group_cap = length as usize;
-                        parsing_state = CtxParsingState::Group;
-                        old = false;
-                        continue;
-                    }
-
-                    _ => {
-                        return;
-                        panic!("unsupported value kind {}", value_kind::string(kind));
-                    }
+                _ => {
+                    return Err(ErrorLogParse::RecordContextNodePredefinedKeyUnknown(kind));
                 }
             }
         }
+
+        Ok(dst)
     }
 
     #[inline(always)]
-    unsafe fn render_json<T>(&mut self, dst: &mut Vec<u8>, ptr: *const u8, off: usize) -> usize
+    unsafe fn render_json<T>(
+        &mut self,
+        dst: *mut u8,
+        ptr: *const u8,
+        off: usize,
+    ) -> (*mut u8, usize)
     where
         T: TransformLiteral,
     {
@@ -559,32 +487,32 @@ impl LogTransfomer {
     #[inline(always)]
     unsafe fn render_slice_json<T>(
         &mut self,
-        dst: &mut Vec<u8>,
+        mut dst: *mut u8,
         ptr: *const u8,
         mut off: usize,
-    ) -> usize
+    ) -> (*mut u8, usize)
     where
         T: TransformLiteral,
     {
         unsafe {
             let (length, size) = read_uvarint(ptr.add(off));
             off += size;
-            dst.push(b'[');
+            dst = dst.append_byte(b'[');
             if length == 0 {
-                dst.push(b']');
-                return off;
+                dst = dst.append_byte(b']');
+                return (dst, off);
             }
 
             for i in 0..length {
                 if i != 0 {
-                    dst.push(b',');
+                    dst = dst.append_byte(b',');
                 }
 
-                off = T::render(self, dst, ptr, off)
+                (dst, off) = T::render(self, dst, ptr, off)
             }
-            dst.push(b']');
+            dst = dst.append_byte(b']');
 
-            off
+            (dst, off)
         }
     }
 }

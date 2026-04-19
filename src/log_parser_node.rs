@@ -1,3 +1,6 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use crate::value_kind::{PREDEFINED_KEYS, PREDEFINED_NAME_LOCATION};
 use std::slice;
 
@@ -9,18 +12,17 @@ use std::slice;
 ///  - `child` is u32 offset of the first child.
 ///  - `data` is u32 offset to the respective log fragment.
 #[repr(C)]
+#[derive(Clone)]
 pub(crate) struct Node {
     pub(crate) kind:    NodeKind,
-    pub(crate) next:    u32,
-    pub(crate) child:   u32,
-    pub(crate) _pad:    u32,
+    pub(crate) is_last: u32,
     pub(crate) key_len: u32,
     pub(crate) key_off: u32,
     pub(crate) val_len: u32,
     pub(crate) val_off: u32,
 }
 
-const _: () = assert!(std::mem::size_of::<Node>() == 32);
+const _: () = assert!(std::mem::size_of::<Node>() == 24);
 
 impl Node {
     #[inline(always)]
@@ -79,6 +81,14 @@ impl Node {
             key.as_bytes()
         }
     }
+
+    pub(crate) fn key_pair(self) -> (usize, usize) {
+        (self.key_len as usize, self.key_off as usize)
+    }
+
+    pub(crate) fn last(self) -> bool {
+        self.is_last != 0
+    }
 }
 
 /// Represents a part of kind value in [Node].
@@ -94,23 +104,25 @@ pub(crate) enum NodeKind {
     Time           = 1,
     Dur            = 2,
     Int            = 3,
-    I8             = 4,
-    I16            = 5,
-    I32            = 6,
-    I64            = 7,
-    Uint           = 8,
-    U8             = 10,
-    U16            = 11,
-    U32            = 12,
-    U64            = 13,
-    F32            = 14,
-    F64            = 15,
-    Str            = 16,
-    Bytes          = 17,
-    ErrTxt         = 18,
-    ErrTxtFragment = 19,
-    ErrLoc         = 20,
-    ErrEmbedText   = 21,
+    IVar           = 4,
+    I8             = 5,
+    I16            = 6,
+    I32            = 7,
+    I64            = 8,
+    Uint           = 10,
+    UVar           = 11,
+    U8             = 12,
+    U16            = 13,
+    U32            = 14,
+    U64            = 15,
+    F32            = 16,
+    F64            = 17,
+    Str            = 18,
+    Bytes          = 19,
+    ErrTxt         = 20,
+    ErrTxtFragment = 21,
+    ErrLoc         = 22,
+    ErrEmbedText   = 23,
 
     // Slices/arrays/lists or whatever you call them.
     Bools          = 64,
@@ -135,6 +147,7 @@ pub(crate) enum NodeKind {
     ErrorStageNew  = 131,
     ErrorStageWrap = 132,
     ErrorStageCtx  = 133,
+    GroupEnd       = 134,
 }
 
 impl NodeKind {
@@ -180,7 +193,29 @@ impl NodeKind {
             NodeKind::ErrorStageNew => "error:New",
             NodeKind::ErrorStageWrap => "error:Wrap",
             NodeKind::ErrorStageCtx => "error:Ctx",
-            &NodeKind::ErrTxtFragment => "error:TextFragment",
+            NodeKind::ErrTxtFragment => "error:TextFragment",
+            NodeKind::IVar => "varint",
+            NodeKind::UVar => "uvarint",
+            NodeKind::GroupEnd => "group:end",
         }
+    }
+
+    pub(crate) fn is_group(self) -> bool {
+        match self {
+            NodeKind::Group => true,
+            NodeKind::Error => true,
+            NodeKind::ErrorEmbed => true,
+            NodeKind::ErrorStageNew => true,
+            NodeKind::ErrorStageWrap => true,
+            NodeKind::ErrorStageCtx => true,
+            _ => false,
+        }
+    }
+}
+
+pub(crate) fn group_is_empty(node: &Node) -> bool {
+    match node.kind {
+        NodeKind::ErrorEmbed => node.val_len as isize - 2 == 0,
+        _ => node.val_len as isize - 1 == 0,
     }
 }

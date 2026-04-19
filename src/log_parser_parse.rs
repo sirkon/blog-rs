@@ -1,8 +1,15 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use super::*;
 use crate::log_parse;
-use crate::log_parse::{log_parse_header, read_uvarint, CtxParsingState};
+use crate::log_parse::{log_parse_header, read_uvarint, read_varint};
 use crate::log_parser::LogParser;
 use crate::log_parser_node::NodeKind;
+use crate::value_kind::{ValueKind, is_group_start};
+use log::error;
+use std::fmt::{Display, Formatter, Write, format};
+use std::panic::Location;
 use std::slice;
 
 impl LogParser {
@@ -73,68 +80,37 @@ impl LogParser {
     pub(crate) unsafe fn parse_ctx<'a>(&mut self, ptr: *const u8, mut off: usize, mut cap: usize) {
         unsafe {
             self.ctx.reset();
-            self.groups_lens.clear();
-            self.caps.clear();
-            self.err_frags.clear();
-            self.state_stack.clear();
+            self.group_stack.clear();
+            self.group_depth = 0;
             self.ctx_size = 0;
             self.has_errors = false;
 
             let _need_tree: bool = false;
-            let mut on_error_stage = false;
-            let mut parsing_state = CtxParsingState::Normal;
-            let mut group_cap: usize = 0;
-            let mut group_off: usize = 0;
-            loop {
+            let mut depth = 0;
+            let mut prev = PrevElement::Whatever;
+            while off < cap {
                 self.group_depth = self.ctx.stack.len();
-                match parsing_state {
-                    CtxParsingState::Normal => {
-                        if off >= cap {
-                            if self.caps.is_empty() {
-                                return;
-                            }
-                        }
-                    }
-
-                    CtxParsingState::Group => {
-                        if group_off > group_cap {
-                            self.ctx.leave_group();
-                            if self.state_stack.is_empty() {
-                                return;
-                            }
-                            parsing_state = self.state_stack.pop().unwrap();
-                            if parsing_state == CtxParsingState::Group {
-                                (group_off, group_cap) = self.groups_lens.pop().unwrap();
-                                continue;
-                            }
-                        }
-                    }
-
-                    CtxParsingState::Error | CtxParsingState::ErrorEmbed => {
-                        if off >= cap {
-                            self.ctx.leave_group(); // Leave context group which is here.
-                            self.ctx.leave_group(); // Leave error itself.
-                            if self.caps.is_empty() {
-                                return;
-                            }
-                            cap = self.caps.pop().unwrap();
-                            parsing_state = self.state_stack.pop().unwrap();
-                            continue;
-                        }
-                    }
-                }
 
                 // Read code and continue the loop on some types that have no payload.
                 let kind = *(ptr.add(off)) as value_kind::ValueKind;
                 off += 1;
                 match kind {
                     value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
-                        on_error_stage = self.leave_stage_group_if_needed(on_error_stage);
-                        self.ctx.add(NodeKind::ErrorStageCtx, 0, 0, 0, 0);
-                        self.ctx.enter_group();
+                        self.group_stack.push(self.ctx.ctrl.len());
+                        self.ctx
+                            .add(NodeKind::ErrorStageCtx, 0, 0, self.ctrl_len(), 0);
+                        prev = PrevElement::Whatever;
                         continue;
                     }
                     value_kind::PHANTOM_CONTEXT_NODE => {
+                        prev = PrevElement::Whatever;
+                        continue;
+                    }
+                    value_kind::GROUP_END => {
+                        self.mark_as_last(prev);
+                        let start = self.group_stack.pop().unwrap();
+                        self.ctx.add(NodeKind::GroupEnd, 0, 0, 0, 0);
+                        prev = PrevElement::End(start);
                         continue;
                     }
                     _ => {}
@@ -157,18 +133,27 @@ impl LogParser {
                     off += size + 1;
                 }
 
+                prev = PrevElement::Whatever;
                 match kind {
                     value_kind::NEW_NODE => {
-                        on_error_stage = self.leave_stage_group_if_needed(on_error_stage);
-                        self.ctx
-                            .add(NodeKind::ErrorStageNew, key_len, key_off, 0, 0);
-                        self.ctx.enter_group();
+                        self.group_stack.push(self.ctx.ctrl.len());
+                        self.ctx.add(
+                            NodeKind::ErrorStageNew,
+                            key_len,
+                            key_off,
+                            self.ctrl_len(),
+                            0,
+                        );
                     }
                     value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
-                        on_error_stage = self.leave_stage_group_if_needed(on_error_stage);
-                        self.ctx
-                            .add(NodeKind::ErrorStageWrap, key_len, key_off, 0, 0);
-                        self.ctx.enter_group();
+                        self.group_stack.push(self.ctx.ctrl.len());
+                        self.ctx.add(
+                            NodeKind::ErrorStageWrap,
+                            key_len,
+                            key_off,
+                            self.ctrl_len(),
+                            0,
+                        );
                     }
                     value_kind::LOCATION_NODE => {
                         let (length, size) = read_uvarint(ptr.add(off));
@@ -179,9 +164,6 @@ impl LogParser {
                     value_kind::FOREIGN_ERROR_TEXT => {
                         self.ctx
                             .add(NodeKind::ErrTxtFragment, key_len, key_off, 0, 0);
-                    }
-                    value_kind::FOREIGN_ERROR_FORMAT => {
-                        // Not supported as for now.
                     }
 
                     value_kind::BOOL => {
@@ -202,7 +184,7 @@ impl LogParser {
                     value_kind::DURATION => {
                         let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
                         self.ctx
-                            .add(NodeKind::Time, key_len, key_off, v as u32, (v >> 32) as u32);
+                            .add(NodeKind::Dur, key_len, key_off, v as u32, (v >> 32) as u32);
                         off += 8;
                         self.ctx_size += 1;
                     }
@@ -212,6 +194,19 @@ impl LogParser {
                         self.ctx
                             .add(NodeKind::Int, key_len, key_off, v as u32, (v >> 32) as u32);
                         off += 8;
+                        self.ctx_size += 1;
+                    }
+
+                    value_kind::IVAR => {
+                        let (value, size) = read_varint(ptr.add(off));
+                        self.ctx.add(
+                            NodeKind::IVar,
+                            key_len,
+                            key_off,
+                            value as u32,
+                            (value as u64 >> 32) as u32,
+                        );
+                        off += size;
                         self.ctx_size += 1;
                     }
 
@@ -249,6 +244,19 @@ impl LogParser {
                         self.ctx
                             .add(NodeKind::Uint, key_len, key_off, v as u32, (v >> 32) as u32);
                         off += 8;
+                        self.ctx_size += 1;
+                    }
+
+                    value_kind::UVAR => {
+                        let (value, size) = read_uvarint(ptr.add(off));
+                        self.ctx.add(
+                            NodeKind::UVar,
+                            key_len,
+                            key_off,
+                            value as u32,
+                            (value >> 32) as u32,
+                        );
+                        off += size;
                         self.ctx_size += 1;
                     }
 
@@ -395,61 +403,90 @@ impl LogParser {
                     }
 
                     value_kind::ERROR => {
-                        self.ctx.add(NodeKind::Error, key_len, key_off, 0, 0);
-                        self.ctx.enter_group();
-                        let (lenght, size) = read_uvarint(ptr.add(off));
-                        off += size;
-                        self.caps.push(cap);
-                        self.state_stack.push(parsing_state);
-                        cap = off + lenght as usize;
-                        parsing_state = CtxParsingState::Error;
+                        self.group_stack.push(self.ctx.ctrl.len());
+                        self.ctx
+                            .add(NodeKind::Error, key_len, key_off, self.ctrl_len(), 0);
                         self.ctx_size += 1;
                         self.has_errors = true;
-                        on_error_stage = false
                     }
 
                     value_kind::ERROR_EMBED => {
-                        self.ctx.add(NodeKind::ErrorEmbed, key_len, key_off, 0, 0);
-                        self.ctx.enter_group();
+                        self.group_stack.push(self.ctx.ctrl.len());
+                        self.ctx
+                            .add(NodeKind::ErrorEmbed, key_len, key_off, self.ctrl_len(), 0);
 
                         // extract a frame of the embedded error text.
                         let (lenght, size) = read_uvarint(ptr.add(off));
                         off += size;
                         self.ctx
                             .add(NodeKind::ErrEmbedText, 0, 0, lenght as u32, off as u32);
-                        self.caps.push(cap);
-                        self.state_stack.push(parsing_state);
                         off += lenght as usize;
 
                         // Now, to the payload!
-                        let (length, size) = read_uvarint(ptr.add(off));
-                        cap = off + size + length as usize;
-                        off += size;
-                        parsing_state = CtxParsingState::ErrorEmbed;
                         self.ctx_size += 1;
                         self.has_errors = true;
-                        on_error_stage = false;
                     }
 
                     value_kind::GROUP => {
-                        self.ctx.add(NodeKind::Group, key_len, key_off, 0, 0);
-                        self.ctx.enter_group();
-                        let (lenght, size) = read_uvarint(ptr.add(off));
-                        off += size;
-                        if parsing_state == CtxParsingState::Group {
-                            self.groups_lens.push((group_off, group_cap));
-                        }
-                        self.state_stack.push(parsing_state);
-                        group_off = 0;
-                        group_cap = lenght as usize;
-                        parsing_state = CtxParsingState::Group;
+                        self.group_stack.push(self.ctx.ctrl.len());
+                        self.ctx
+                            .add(NodeKind::Group, key_len, key_off, self.ctrl_len(), 0);
                         self.ctx_size += 1;
                     }
 
-                    _ => {}
+                    _ => {
+                        panic!("unknown value kind {}", value_kind::string(kind));
+                    }
                 }
+            }
+            self.mark_as_last(prev);
+        }
+    }
 
-                group_off += 1;
+    fn ctrl_len(&self) -> u32 {
+        self.ctx.ctrl.len() as u32
+    }
+
+    #[inline(always)]
+    unsafe fn mark_as_last(&mut self, prev: PrevElement) {
+        match prev {
+            PrevElement::End(idx) => {
+                let mut curlen = self.ctrl_len();
+                let x = self.ctx.ctrl.get_unchecked_mut(idx);
+                x.val_len = curlen - x.val_len;
+                x.is_last = 1
+            }
+            PrevElement::Whatever => {
+                let idx = self.ctx.ctrl.len() - 1;
+                if idx == usize::MAX {
+                    return;
+                };
+                let mut curlen = self.ctrl_len();
+                let x = self.ctx.ctrl.get_unchecked_mut(idx);
+                if !x.kind.is_group() {
+                    x.is_last = 1
+                } else {
+                    x.val_len = curlen - x.val_len;
+                }
+            }
+        };
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PrevElement {
+    Whatever,
+    End(usize),
+}
+
+impl Display for PrevElement {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PrevElement::Whatever => f.write_str("Whatever"),
+            PrevElement::End(x) => {
+                f.write_str("End(");
+                f.write_str(format!("{}", x).as_str());
+                f.write_str(")")
             }
         }
     }

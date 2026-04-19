@@ -1,29 +1,28 @@
 #[cfg(test)]
 mod test {
+    use std::fs;
     use crate::log_parser::LogParser;
-    use crate::log_parser_tree_builder::show;
     use crate::log_render::LogRender;
     use crate::log_render_color::ColorProfile;
-    use crate::log_transfomer_into_json::LogTransfomer;
-    use std::fs;
-    use std::fs::File;
     use std::io::{BufWriter, Write};
-    use jiff::Timestamp;
+    use crate::log_transfomer_into_json::LogTransfomer;
 
     #[test]
     fn test_large_file() {
         let data = fs::read("./src/testdata/large.bin").unwrap();
         let mut rdata = data.as_slice();
 
-        let file = File::create("./src/testdata/large.jsonl").unwrap();
+        let file = fs::File::create("./src/testdata/large.jsonl").unwrap();
         let mut writer = BufWriter::with_capacity(2 * 1024 * 1024, file);
 
         let mut dst: Vec<u8> = Vec::with_capacity(128 * 1024);
-        // let mut parser = LogParser::new();
+        let mut parser = LogParser::new();
 
         let mut render = LogTransfomer::new();
 
         let now = jiff::Timestamp::now();
+        let mut count = 0;
+        let mut line = Vec::<u8>::with_capacity(128 * 1024);
         while rdata.len() > 0 {
             dst.clear();
             unsafe {
@@ -32,9 +31,13 @@ mod test {
                 // rdata = x;
             }
             dst.push(b'\n');
-            writer.write_all(&dst).unwrap();
+            // writer.write_all(&dst).unwrap();
+            line.clear();
+            line.extend_from_slice(&mut dst);
+            count += 1;
         }
-        println!("{}", jiff::Timestamp::now() - now);
+        println!("last line: {}", String::from_utf8_lossy(&line));
+        println!("processed {} lines ({} bytes) in {}", count, data.len(), jiff::Timestamp::now() - now);
     }
 
     #[test]
@@ -53,7 +56,7 @@ mod test {
 
         for file in files {
             show_file_output(file);
-            show_json_output(file);
+            // show_json_output(file);
         }
     }
 
@@ -63,12 +66,12 @@ mod test {
 
         unsafe {
             let mut dst: Vec<u8> = Vec::new();
-            let mut render = LogTransfomer::new();
-            render.transform_json(&mut dst, rdata).unwrap();
+            // let mut render = LogTransfomer::new();
+            // render.transform_json(&mut dst, rdata).unwrap();
             dst.push(b'\n');
 
-            println!("binary[{} bytes] json[{} bytes]", rdata.len(), dst.len());
-            print!("{}", String::from_utf8_lossy(&dst));
+            // println!("binary[{} bytes] json[{} bytes]", rdata.len(), dst.len());
+            // print!("{}", String::from_utf8_lossy(&dst));
         }
     }
 
@@ -81,6 +84,8 @@ mod test {
         unsafe {
             let mut render = LogRender::new(ColorProfile::light());
             let (record, _) = parser.parse_log_data(rdata).unwrap();
+            // show(&parser.ctx.ctrl);
+
             parser.make_record(&mut render);
 
             let mut dst: Vec<u8> = Vec::new();

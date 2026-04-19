@@ -1,3 +1,6 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use crate::log_parse::read_uvarint;
 use crate::log_rend_json::render_json_string;
 use crate::log_render::LogRender;

@@ -311,6 +311,10 @@ mod test {
                 stack: &[true, false, false, false, false, false, false, false, false],
                 want:  "│                          ",
             },
+            TestSample {
+                stack: &[true, true],
+                want: "│  │  ",
+            },
         ];
 
         let mut tmp_name = String::new();

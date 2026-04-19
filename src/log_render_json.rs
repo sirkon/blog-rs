@@ -1,10 +1,12 @@
-use crate::log_parser_node::Node;
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use crate::log_parser_node::NodeKind;
 use crate::log_render;
 use crate::log_render::{LogRender, RenderGroupType};
 use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
 use crate::{log_rend_json, slice_items};
-use std::slice;
+
 impl<'a> LogRender<'a> {
     pub unsafe fn render_json(&mut self, dst: &mut Vec<u8>, src: &[u8]) {
         unsafe {
@@ -20,11 +22,9 @@ impl<'a> LogRender<'a> {
             let mut old = false;
             let mut is_embed_err = false;
             let mut embed_err_text = (0 as usize, 0 as usize);
-            let mut render_state = RenderGroupType::Root;
+            let mut in_err_depth: isize = 0;
 
-            'outer: loop {
-                let mut node = &*(node_ptr.add(pos) as *const Node);
-
+            for node in self.ctx {
                 match node.kind {
                     NodeKind::ErrEmbedText => {
                         embed_err_text = (node.val_len as usize, node.val_off as usize);
@@ -34,6 +34,46 @@ impl<'a> LogRender<'a> {
                             self.err_stack
                                 .push((node.key_len as usize, node.key_off as usize));
                         }
+                    }
+                    NodeKind::GroupEnd => {
+                        dst.push(b'}');
+                        if in_err_depth == 0 {
+                            continue;
+                        }
+                        in_err_depth -= 1;
+                        if in_err_depth != 0 {
+                            continue;
+                        }
+                        // We just closed an error. Need to render an error @text.
+                        dst.extend_from_slice(b", ");
+                        log_rend_json::render_json_string(
+                            dst,
+                            log_render::predefined_key(PREDEFINED_NAME_TEXT),
+                        );
+                        dst.extend_from_slice(b": \"");
+                        if self.err_stack.len() > 0 {
+                            // It was an error with a computable text.
+                            for (i, (len, off)) in self.err_stack.iter().rev().enumerate() {
+                                if i != 0 {
+                                    dst.push(b':');
+                                    dst.push(b' ');
+                                }
+                                log_rend_json::render_safe_json_string_ptr(
+                                    dst,
+                                    ptr.add(*off),
+                                    *len,
+                                );
+                            }
+                            self.err_stack.clear();
+                        } else {
+                            // It was an error with precomputed text.
+                            let (len, off) = embed_err_text;
+                            log_rend_json::render_safe_json_string_ptr(dst, ptr.add(off), len);
+                        }
+                        dst.push(b'"');
+                        dst.push(b'}');
+                        old = true;
+                        continue;
                     }
                     _ => {
                         if old {
@@ -51,6 +91,7 @@ impl<'a> LogRender<'a> {
                                     node.key_as_slice(ptr),
                                 );
                                 dst.push(b'"');
+                                in_err_depth += 1;
                             }
                             NodeKind::ErrorStageWrap => {
                                 dst.push(b'"');
@@ -60,11 +101,13 @@ impl<'a> LogRender<'a> {
                                     node.key_as_slice(ptr),
                                 );
                                 dst.push(b'"');
+                                in_err_depth += 1;
                             }
                             NodeKind::ErrorStageCtx => {
                                 dst.push(b'"');
                                 dst.extend_from_slice(b"CTX");
                                 dst.push(b'"');
+                                in_err_depth += 1;
                             }
                             _ => {
                                 log_rend_json::render_json_string(dst, node.key_as_slice(ptr));
@@ -97,6 +140,9 @@ impl<'a> LogRender<'a> {
                     NodeKind::Int => {
                         self.render_int(dst, node.val_as_u64() as i64);
                     }
+                    NodeKind::IVar => {
+                        self.render_int(dst, node.val_as_u64() as i64);
+                    }
                     NodeKind::I8 => {
                         self.render_int(dst, node.val_off as i64);
                     }
@@ -110,6 +156,9 @@ impl<'a> LogRender<'a> {
                         self.render_int(dst, node.val_as_u64() as i64);
                     }
                     NodeKind::Uint => {
+                        self.render_uint(dst, node.val_as_u64());
+                    }
+                    NodeKind::UVar => {
                         self.render_uint(dst, node.val_as_u64());
                     }
                     NodeKind::U8 => {
@@ -211,128 +260,51 @@ impl<'a> LogRender<'a> {
                         node.val_len as usize,
                     ),
                     NodeKind::Group => {
-                        if node.child != u32::MAX {
-                            self.grp_stack.push((pos, render_state));
-                            render_state = RenderGroupType::Group;
-                            dst.push(b'{');
-                            old = false;
-                            pos = node.child as usize;
-                            continue;
-                        } else {
-                            dst.extend_from_slice(b"{}");
-                        }
+                        dst.push(b'{');
+                        old = false;
                     }
                     NodeKind::Error => {
-                        if node.child != u32::MAX {
-                            is_embed_err = false;
-                            self.err_stack.clear();
-                            self.grp_stack.push((pos, render_state));
-                            render_state = RenderGroupType::Error;
-                            dst.push(b'{');
-                            log_rend_json::render_json_string(
-                                dst,
-                                log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
-                            );
-                            dst.push(b':');
-                            dst.push(b' ');
-                            dst.push(b'{');
-                            old = false;
-                            pos = node.child as usize;
-                            continue;
-                        } else {
-                            dst.extend_from_slice(b"{}");
-                        }
+                        in_err_depth += 1;
+                        is_embed_err = false;
+                        self.err_stack.clear();
+                        dst.push(b'{');
+                        log_rend_json::render_json_string(
+                            dst,
+                            log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
+                        );
+                        dst.push(b':');
+                        dst.push(b' ');
+                        dst.push(b'{');
+                        old = false;
+                        continue;
                     }
                     NodeKind::ErrorEmbed => {
-                        if node.child != u32::MAX {
-                            is_embed_err = true;
-                            self.err_stack.clear();
-                            self.grp_stack.push((pos, render_state));
-                            render_state = RenderGroupType::ErrorEmbed;
-                            dst.push(b'{');
-                            log_rend_json::render_json_string(
-                                dst,
-                                log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
-                            );
-                            dst.push(b':');
-                            dst.push(b' ');
-                            dst.push(b'{');
-                            old = false;
-                            pos = node.child as usize;
-                            continue;
-                        } else {
-                            dst.extend_from_slice(b"{}");
-                        }
+                        in_err_depth += 1;
+                        is_embed_err = true;
+                        self.err_stack.clear();
+                        dst.push(b'{');
+                        log_rend_json::render_json_string(
+                            dst,
+                            log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
+                        );
+                        dst.push(b':');
+                        dst.push(b' ');
+                        dst.push(b'{');
+                        old = false;
+                        continue;
                     }
                     NodeKind::ErrorStageNew
                     | NodeKind::ErrorStageWrap
                     | NodeKind::ErrorStageCtx => {
-                        if node.child != u32::MAX {
-                            self.grp_stack.push((pos, render_state));
-                            render_state = RenderGroupType::ErrorStage;
-                            dst.push(b'{');
-                            old = false;
-                            pos = node.child as usize;
-                            if node.kind != NodeKind::ErrorStageCtx {
-                                self.err_stack
-                                    .push((node.key_len as usize, node.key_off as usize));
-                            }
-                            continue;
-                        } else {
-                            dst.extend_from_slice(b"{}");
+                        dst.push(b'{');
+                        old = false;
+                        if node.kind != NodeKind::ErrorStageCtx {
+                            self.err_stack
+                                .push((node.key_len as usize, node.key_off as usize));
                         }
+                        continue;
                     }
-                }
-
-                loop {
-                    pos = node.next as usize;
-                    if pos != 0 {
-                        continue 'outer;
-                    }
-
-                    if self.grp_stack.is_empty() {
-                        break 'outer;
-                    }
-                    dst.push(b'}');
-                    match render_state {
-                        RenderGroupType::Error => {
-                            dst.push(b',');
-                            dst.push(b' ');
-                            log_rend_json::render_json_string(
-                                dst,
-                                log_render::predefined_key(PREDEFINED_NAME_TEXT),
-                            );
-                            dst.push(b':');
-                            dst.push(b' ');
-                            dst.push(b'"');
-                            for (i, (len, off)) in self.err_stack.iter().rev().enumerate() {
-                                if i != 0 {
-                                    dst.push(b':');
-                                    dst.push(b' ');
-                                }
-                                dst.extend_from_slice(slice::from_raw_parts(ptr.add(*off), *len));
-                            }
-                            dst.push(b'"');
-                            dst.push(b'}');
-                        }
-                        RenderGroupType::ErrorEmbed => {
-                            dst.push(b',');
-                            dst.push(b' ');
-                            log_rend_json::render_json_string(
-                                dst,
-                                log_render::predefined_key(PREDEFINED_NAME_TEXT),
-                            );
-                            dst.push(b':');
-                            dst.push(b' ');
-                            let (length, off) = embed_err_text;
-                            let txt = slice::from_raw_parts(ptr.add(off), length);
-                            log_rend_json::render_json_string(dst, txt);
-                            dst.push(b'}');
-                        }
-                        _ => {}
-                    }
-                    (pos, render_state) = self.grp_stack.pop().unwrap();
-                    node = &*(node_ptr.add(pos) as *const Node);
+                    NodeKind::GroupEnd => {}
                 }
             }
 

@@ -1,7 +1,11 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use crate::level;
+use crate::log_parser_node::Node;
 use crate::log_rend::{render_go_duration, render_time};
 use crate::log_render_color::ColorProfile;
-use crate::value_kind::{ValueKind, PREDEFINED_KEYS};
+use crate::value_kind::{PREDEFINED_KEYS, ValueKind};
 use memchr::Memchr;
 use std::io::Read;
 use std::slice;
@@ -12,7 +16,6 @@ pub struct LogRender<'a> {
     pub(crate) buf:       Vec<u8>,
     pub(crate) need_tree: bool,
     pub(crate) err_stack: Vec<(usize, usize)>,
-    pub(crate) grp_stack: Vec<(usize, RenderGroupType)>,
 
     pub(crate) tree_always: bool,
     pub(crate) tree_stack:  Vec<(u64, isize)>,
@@ -29,7 +32,7 @@ pub struct LogRender<'a> {
     pub(crate) level: u8,
     pub(crate) loc:   Option<(usize, usize, usize)>,
     pub(crate) msg:   (usize, usize),
-    pub(crate) ctx:   &'a [u8],
+    pub(crate) ctx:   &'a [Node],
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -49,7 +52,6 @@ impl<'a> LogRender<'a> {
             buf:                  Vec::with_capacity(4096),
             need_tree:            false,
             err_stack:            Vec::with_capacity(16),
-            grp_stack:            Vec::with_capacity(16),
             tree_always:          false,
             tree_stack:           Vec::with_capacity(16),
             tree_prefix:          0,
@@ -100,7 +102,7 @@ impl<'a> LogRender<'a> {
                 self.color_reset(dst);
                 self.color_set_back_ctx(dst);
 
-                if self.need_tree || self.tree_always {
+                if (self.need_tree || self.tree_always) {
                     self.render_tree(dst, src);
                 } else {
                     self.render_json(dst, src);
@@ -298,6 +300,18 @@ pub(crate) fn predefined_key<'a>(key: ValueKind) -> &'a [u8] {
 
     let value = PREDEFINED_KEYS[index as usize];
     return value.as_bytes();
+}
+
+pub(crate) fn predefined_keys_safe<'a>(key: ValueKind) -> Result<&'a [u8], bool> {
+    if key < 255 as ValueKind {
+        return Err(false);
+    }
+    let index = (key >> 8) - 1;
+    if index >= PREDEFINED_KEYS.len() as ValueKind {
+        return Err(false);
+    }
+
+    Ok(PREDEFINED_KEYS[index as usize].as_bytes())
 }
 
 #[cfg(test)]

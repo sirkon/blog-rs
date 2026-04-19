@@ -1,3 +1,6 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use std::slice;
 use crate::crc32custom::fast_crc32c;
 
@@ -68,6 +71,10 @@ pub(crate) enum ErrorLogParse {
     RecordVersionNotSupported(u16),
     /// Record data has unsupported level.
     RecordLevelNotSupported(u8),
+    /// Context node type is unknown.
+    RecordContextNodeType(u8),
+    /// Context predefined key is unkown
+    RecordContextNodePredefinedKeyUnknown(u64),
 }
 
 #[inline(always)]
@@ -98,6 +105,30 @@ pub(crate) unsafe fn read_uvarint(ptr: *const u8) -> (u64, usize) {
     }
 }
 
+#[inline]
+pub(crate) fn write_uvarint(mut value: u64, buf: &mut Vec<u8>) {
+    while value >= 0x80 {
+        buf.push((value as u8) | 0x80);
+        value >>= 7;
+    }
+    buf.push(value as u8);
+}
+
+#[inline(always)]
+pub(crate) unsafe fn read_varint(ptr: *const u8) -> (i64, usize) {
+    let (uval, len) = read_uvarint(ptr);
+    // zigzag decode: (uval >> 1) ^ -(uval & 1)
+    let val = ((uval >> 1) as i64) ^ (-((uval & 1) as i64));
+    (val, len)
+}
+
+#[inline]
+pub(crate) fn write_varint(value: i64, buf: &mut Vec<u8>) {
+    // zigzag encode: (value << 1) ^ (value >> 63)
+    let uval = ((value << 1) ^ (value >> 63)) as u64;
+    write_uvarint(uval, buf);
+}
+
 #[inline(always)]
 pub(crate) unsafe fn read_uvarint_safe(ptr: *const u8, mut lim: usize) -> (u64, usize) {
     unsafe {
@@ -122,11 +153,4 @@ pub(crate) unsafe fn read_uvarint_safe(ptr: *const u8, mut lim: usize) -> (u64, 
     }
 }
 
-/// Denotes a context parsing state.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CtxParsingState {
-    Normal,
-    Group,
-    Error,
-    ErrorEmbed,
-}
+

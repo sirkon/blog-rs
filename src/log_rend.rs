@@ -1,3 +1,6 @@
+#![allow(unused_unsafe)]
+#![allow(unsafe_code)]
+
 use jiff::Timestamp;
 
 #[inline(always)]
