@@ -3,9 +3,9 @@
 
 use crate::log_parse::read_uvarint;
 use crate::log_rend::render_go_duration;
-use crate::log_transfomer_into_json::LogTransfomerJSON;
-use crate::pointer_ext::PointerExt;
 use std::slice;
+use crate::log_transfomer_into_json::LogTransfomerJSON;
+use crate::pointer_ext::PointerAppender;
 
 pub(crate) trait TransformIntoJSONLiteral {
     unsafe fn render(

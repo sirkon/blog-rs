@@ -97,7 +97,7 @@ pub(crate) unsafe fn read_uvarint(ptr: *const u8) -> (u64, usize) {
         }
 
         let c = *ptr.add(1);
-        if b < 0x80 {
+        if c < 0x80 {
             return (u64::from(c) << 7 + u64::from(b), 2);
         }
 

@@ -1,4 +1,4 @@
-use crate::pointer_ext::PointerExt;
+use crate::pointer_ext::PointerAppender;
 use std::ptr::write_unaligned;
 use include_bytes_aligned::include_bytes_aligned;
 

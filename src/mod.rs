@@ -24,6 +24,7 @@ mod value_kind;
 mod pointer_ext;
 mod itoa4;
 mod itoa2;
+mod log_transformer_repack;
 
 pub use log_parser::LogParser;
 pub use log_render::LogRender;

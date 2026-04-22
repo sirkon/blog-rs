@@ -4,7 +4,7 @@
 use crate::log_parser_node::NodeKind;
 use crate::log_render;
 use crate::log_render::{LogRender};
-use crate::pointer_ext::{PointerExt};
+use crate::pointer_ext::{PointerAppender};
 use crate::{log_rend_json, slice_items};
 
 impl<'a> LogRender<'a> {

@@ -8,7 +8,7 @@ use crate::log_transfomer_into_json_consts::{
     JSON_LEVEL_INFO, JSON_LEVEL_PANIC, JSON_LEVEL_TRACE, JSON_LEVEL_UNKNOWN, JSON_LEVEL_WARN,
     JSON_LOCATION, JSON_MESSAGE, JSON_STACKTRACE, JSON_TIME,
 };
-use crate::pointer_ext::PointerExt;
+use crate::pointer_ext::PointerAppender;
 use crate::transform_json_items::{
     TransformBytes, TransformDuration, TransformIntoJSONLiteral, TransformIvar, TransformString,
     TransformTime, TransformUvar,
@@ -45,7 +45,7 @@ impl LogTransfomerJSON {
     }
 
     // Transforms a record in the given src into JSON
-    pub(crate) unsafe fn transform_json<'a>(
+    pub(crate) unsafe fn transform<'a>(
         &mut self,
         dst: &mut Vec<u8>,
         src: &'a [u8],
@@ -225,10 +225,8 @@ impl LogTransfomerJSON {
                         off += size;
                         self.fmtbuf.clear();
                         self.fmtbuf.extend_from_slice(b"NEW: ");
-                        self.fmtbuf.extend_from_slice(slice::from_raw_parts(
-                            ptr.add(off),
-                            length as usize,
-                        ));
+                        self.fmtbuf
+                            .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
                         if !is_embed_error {
                             self.err_frags.push((length as usize, off));
                         }
@@ -247,10 +245,8 @@ impl LogTransfomerJSON {
                         off += size;
                         self.fmtbuf.clear();
                         self.fmtbuf.extend_from_slice(b"NEW: ");
-                        self.fmtbuf.extend_from_slice(slice::from_raw_parts(
-                            ptr.add(off),
-                            length as usize,
-                        ));
+                        self.fmtbuf
+                            .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
                         if !is_embed_error {
                             self.err_frags.push((length as usize, off));
                         }

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod test {
-    use std::fs;
     use crate::log_parser::LogParser;
     use crate::log_render::LogRender;
     use crate::log_render_color::ColorProfile;
     use crate::log_transfomer_into_json::LogTransfomerJSON;
+    use std::fs;
     use std::io::{BufWriter, Write};
 
     #[test]
@@ -26,7 +26,7 @@ mod test {
         while rdata.len() > 0 {
             dst.clear();
             unsafe {
-                rdata = render.transform_json(&mut dst, rdata).unwrap();
+                rdata = render.transform(&mut dst, rdata).unwrap();
                 // let (_, x) =  parser.parse_log_data(rdata).unwrap();
                 // rdata = x;
             }
@@ -96,7 +96,7 @@ mod test {
             print!("{}", String::from_utf8_lossy(&dst));
 
             dst.clear();
-            transfomer.transform_json(&mut dst, rdata).unwrap();
+            transfomer.transform(&mut dst, rdata).unwrap();
             println!("{}", String::from_utf8_lossy(&dst));
         }
     }
