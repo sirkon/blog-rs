@@ -1,5 +1,6 @@
 #![allow(unused_unsafe)]
 #![allow(unsafe_code)]
+#![allow(unused)]
 
 use std::slice;
 

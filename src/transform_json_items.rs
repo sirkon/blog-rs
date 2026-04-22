@@ -1,15 +1,19 @@
 #![allow(unused_unsafe)]
 #![allow(unsafe_code)]
 
-use crate::log_parse::{read_uvarint, read_varint};
+use crate::log_parse::read_uvarint;
 use crate::log_rend::render_go_duration;
 use crate::log_transfomer_into_json::LogTransfomer;
-use std::slice;
 use crate::pointer_ext::PointerExt;
+use std::slice;
 
 pub(crate) trait TransformIntoJSONLiteral {
-    unsafe fn render(t: &mut LogTransfomer, dst: *mut u8, ptr: *const u8, off: usize)
-    -> (*mut u8, usize);
+    unsafe fn render(
+        t: &mut LogTransfomer,
+        dst: *mut u8,
+        ptr: *const u8,
+        off: usize,
+    ) -> (*mut u8, usize);
 }
 
 pub(crate) struct TransformTime {}
@@ -42,6 +46,7 @@ impl TransformIntoJSONLiteral for bool {
 
 impl TransformIntoJSONLiteral for TransformTime {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -78,21 +83,25 @@ impl TransformIntoJSONLiteral for TransformDuration {
 
 impl TransformIntoJSONLiteral for TransformIvar {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
     ) -> (*mut u8, usize) {
-        let (value, size) = read_uvarint(ptr.add(off));
-        dst = dst.append_itoa(value as i64);
+        unsafe {
+            let (value, size) = read_uvarint(ptr.add(off));
+            dst = dst.append_itoa(value as i64);
 
-        (dst, off + size)
+            (dst, off + size)
+        }
     }
 }
 
 impl TransformIntoJSONLiteral for i64 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -110,6 +119,7 @@ impl TransformIntoJSONLiteral for i64 {
 
 impl TransformIntoJSONLiteral for i32 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -127,6 +137,7 @@ impl TransformIntoJSONLiteral for i32 {
 
 impl TransformIntoJSONLiteral for i16 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -144,6 +155,7 @@ impl TransformIntoJSONLiteral for i16 {
 
 impl TransformIntoJSONLiteral for i8 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -161,21 +173,25 @@ impl TransformIntoJSONLiteral for i8 {
 
 impl TransformIntoJSONLiteral for TransformUvar {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
     ) -> (*mut u8, usize) {
-        let (value, size) = read_uvarint(ptr.add(off));
-        dst = dst.append_utoa(value);
+        unsafe {
+            let (value, size) = read_uvarint(ptr.add(off));
+            dst = dst.append_utoa(value);
 
-        (dst, off + size)
+            (dst, off + size)
+        }
     }
 }
 
 impl TransformIntoJSONLiteral for u64 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -193,6 +209,7 @@ impl TransformIntoJSONLiteral for u64 {
 
 impl TransformIntoJSONLiteral for u32 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -210,6 +227,7 @@ impl TransformIntoJSONLiteral for u32 {
 
 impl TransformIntoJSONLiteral for u16 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -227,6 +245,7 @@ impl TransformIntoJSONLiteral for u16 {
 
 impl TransformIntoJSONLiteral for u8 {
     #[inline(always)]
+    #[allow(unused_variables)]
     unsafe fn render(
         t: &mut LogTransfomer,
         mut dst: *mut u8,
@@ -298,7 +317,7 @@ impl TransformIntoJSONLiteral for TransformString {
     ) -> (*mut u8, usize) {
         unsafe {
             let (length, size) = read_uvarint(ptr.add(off));
-            dst = dst.append_escaped_ptr(ptr.add(off+size), length as usize);
+            dst = dst.append_escaped_ptr(ptr.add(off + size), length as usize);
 
             (dst, off + size + length as usize)
         }

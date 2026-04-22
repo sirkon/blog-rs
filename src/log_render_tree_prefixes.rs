@@ -317,6 +317,7 @@ mod test {
             },
         ];
 
+        #[allow(unused_assignments)]
         let mut tmp_name = String::new();
         for t in &tests {
             let depth = t.stack.len();

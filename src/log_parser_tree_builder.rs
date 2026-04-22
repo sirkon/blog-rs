@@ -53,6 +53,7 @@ impl TreeBuilder {
 }
 
 // Shows collected data as a dump.
+#[allow(unused)]
 pub(crate) unsafe fn show(ctrl: &Vec<Node>) {
     unsafe {
         for (i, node) in ctrl.iter().enumerate() {

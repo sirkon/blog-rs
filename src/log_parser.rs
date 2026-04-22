@@ -57,16 +57,19 @@ impl LogParser {
         dst.tree_depth = 0;
     }
 
+    #[allow(unused)]
     pub(crate) fn with_max_log_record_size(&mut self, size: usize) -> &mut Self {
         self.max_log_size = size;
         self
     }
 
+    #[allow(unused)]
     pub(crate) fn with_show_since_level(&mut self, level: u8) -> &mut Self {
         self.process_since_level = level;
         self
     }
 
+    #[allow(unused)]
     pub(crate) fn should_pass(&self) -> bool {
         self.level < self.process_since_level
     }

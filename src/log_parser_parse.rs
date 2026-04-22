@@ -6,10 +6,7 @@ use crate::log_parse;
 use crate::log_parse::{log_parse_header, read_uvarint, read_varint};
 use crate::log_parser::LogParser;
 use crate::log_parser_node::NodeKind;
-use crate::value_kind::{ValueKind, is_group_start};
-use log::error;
-use std::fmt::{Display, Formatter, Write, format};
-use std::panic::Location;
+use std::fmt::{Display, Formatter};
 use std::slice;
 
 impl LogParser {
@@ -77,7 +74,7 @@ impl LogParser {
         }
     }
 
-    pub(crate) unsafe fn parse_ctx<'a>(&mut self, ptr: *const u8, mut off: usize, mut cap: usize) {
+    pub(crate) unsafe fn parse_ctx<'a>(&mut self, ptr: *const u8, mut off: usize, cap: usize) {
         unsafe {
             self.ctx.reset();
             self.group_stack.clear();
@@ -86,7 +83,6 @@ impl LogParser {
             self.has_errors = false;
 
             let _need_tree: bool = false;
-            let mut depth = 0;
             let mut prev = PrevElement::Whatever;
             while off < cap {
                 self.group_depth = self.ctx.stack.len();
@@ -118,7 +114,9 @@ impl LogParser {
 
                 // Read the key. It can be either 0-lead uvarint of predefined key index, or
                 // a literal key with uvarint(length) + body.
+                #[allow(unused_assignments)]
                 let mut key_len: u32 = 0;
+                #[allow(unused_assignments)]
                 let mut key_off: u32 = 0;
                 let v = *(ptr.add(off));
                 if v != 0 {
@@ -132,6 +130,7 @@ impl LogParser {
                     key_off = length as u32;
                     off += size + 1;
                 }
+
 
                 prev = PrevElement::Whatever;
                 match kind {
@@ -234,7 +233,7 @@ impl LogParser {
                     value_kind::I64 => {
                         let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
                         self.ctx
-                            .add(NodeKind::Int, key_len, key_off, v as u32, (v >> 32) as u32);
+                            .add(NodeKind::I64, key_len, key_off, v as u32, (v >> 32) as u32);
                         off += 8;
                         self.ctx_size += 1;
                     }
@@ -435,7 +434,12 @@ impl LogParser {
                     }
 
                     _ => {
-                        panic!("unknown value kind {}", value_kind::string(kind));
+                        panic!(
+                            "unknown value kind {} at offset {} out of {}",
+                            value_kind::string(kind),
+                            off,
+                            cap
+                        );
                     }
                 }
             }
@@ -449,27 +453,29 @@ impl LogParser {
 
     #[inline(always)]
     unsafe fn mark_as_last(&mut self, prev: PrevElement) {
-        match prev {
-            PrevElement::End(idx) => {
-                let mut curlen = self.ctrl_len();
-                let x = self.ctx.ctrl.get_unchecked_mut(idx);
-                x.val_len = curlen - x.val_len;
-                x.is_last = 1
-            }
-            PrevElement::Whatever => {
-                let idx = self.ctx.ctrl.len() - 1;
-                if idx == usize::MAX {
-                    return;
-                };
-                let mut curlen = self.ctrl_len();
-                let x = self.ctx.ctrl.get_unchecked_mut(idx);
-                if !x.kind.is_group() {
-                    x.is_last = 1
-                } else {
+        unsafe {
+            match prev {
+                PrevElement::End(idx) => {
+                    let curlen = self.ctrl_len();
+                    let x = self.ctx.ctrl.get_unchecked_mut(idx);
                     x.val_len = curlen - x.val_len;
+                    x.is_last = 1
                 }
-            }
-        };
+                PrevElement::Whatever => {
+                    let idx = self.ctx.ctrl.len() - 1;
+                    if idx == usize::MAX {
+                        return;
+                    };
+                    let curlen = self.ctrl_len();
+                    let x = self.ctx.ctrl.get_unchecked_mut(idx);
+                    if !x.kind.is_group() {
+                        x.is_last = 1
+                    } else {
+                        x.val_len = curlen - x.val_len;
+                    }
+                }
+            };
+        }
     }
 }
 
@@ -484,8 +490,8 @@ impl Display for PrevElement {
         match self {
             PrevElement::Whatever => f.write_str("Whatever"),
             PrevElement::End(x) => {
-                f.write_str("End(");
-                f.write_str(format!("{}", x).as_str());
+                f.write_str("End(")?;
+                f.write_str(format!("{}", x).as_str())?;
                 f.write_str(")")
             }
         }

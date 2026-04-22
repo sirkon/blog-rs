@@ -1,6 +1,6 @@
+use crate::itoa4::{append_itoa, append_utoa};
 use std::ptr::copy_nonoverlapping;
 use std::slice;
-use crate::itoa4::{append_itoa, append_utoa};
 
 pub(crate) trait PointerExt {
     unsafe fn append<T: AsRef<[u8]>>(self, s: T) -> *mut u8;
@@ -8,9 +8,10 @@ pub(crate) trait PointerExt {
     unsafe fn append_quoted<T: AsRef<[u8]>>(self, s: T) -> *mut u8;
     unsafe fn append_escaped_ptr(self, src: *const u8, len: usize) -> *mut u8;
     unsafe fn append_byte(self, c: u8) -> *mut u8;
+    #[allow(unused)]
     unsafe fn append_ptr(self, src: *const u8, len: usize) -> *mut u8;
-    unsafe fn append_utoa(self, v :u64) -> *mut u8;
-    unsafe fn append_itoa(self, v :i64) -> *mut u8;
+    unsafe fn append_utoa(self, v: u64) -> *mut u8;
+    unsafe fn append_itoa(self, v: i64) -> *mut u8;
 }
 
 impl PointerExt for *mut u8 {
@@ -39,7 +40,7 @@ impl PointerExt for *mut u8 {
 
     #[inline(always)]
     unsafe fn append_quoted<T: AsRef<[u8]>>(self, s: T) -> *mut u8 {
-        self.append_byte(b'"').append(s).append_byte(b'"')
+        unsafe { self.append_byte(b'"').append(s).append_byte(b'"') }
     }
 
     unsafe fn append_escaped_ptr(self, src: *const u8, len: usize) -> *mut u8 {
@@ -69,14 +70,10 @@ impl PointerExt for *mut u8 {
     }
 
     unsafe fn append_utoa(self, v: u64) -> *mut u8 {
-        unsafe {
-            append_utoa(self,v)
-        }
+        unsafe { append_utoa(self, v) }
     }
 
     unsafe fn append_itoa(self, v: i64) -> *mut u8 {
-        unsafe {
-            append_itoa(self, v)
-        }
+        unsafe { append_itoa(self, v) }
     }
 }

@@ -64,6 +64,7 @@ pub const PREDEFINED_NAME_LOCATION: ValueKind = 3 << 8;
 // There're ValueKind values at 256 and further to represent [Attr] with predefined keys, where their
 // lowest byte represents a kind and the upper 7 bytes refer a key index.
 
+#[allow(unused)]
 pub(crate) fn is_group_start(k: ValueKind) -> bool {
     match k {
         NEW_NODE

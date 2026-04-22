@@ -3,7 +3,7 @@
 
 use crate::log_parser_node::NodeKind;
 use crate::log_render;
-use crate::log_render::{LogRender, RenderGroupType};
+use crate::log_render::LogRender;
 use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
 use crate::{log_rend_json, slice_items};
 
@@ -16,9 +16,7 @@ impl<'a> LogRender<'a> {
             }
 
             dst.push(b'{');
-            let node_ptr = self.ctx.as_ptr();
             let ptr = src.as_ptr();
-            let mut pos = 0 as usize;
             let mut old = false;
             let mut is_embed_err = false;
             let mut embed_err_text = (0 as usize, 0 as usize);

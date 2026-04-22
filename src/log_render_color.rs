@@ -3,6 +3,7 @@
 
 use crate::LogRender;
 
+#[allow(unused)]
 pub(crate) struct ColorProfile {
     pub(crate) reset:     &'static [u8],
     pub(crate) bold:      &'static [u8],
@@ -25,6 +26,7 @@ pub(crate) struct ColorProfile {
     pub(crate) ctx:       &'static [u8],
 }
 
+#[allow(unused)]
 impl ColorProfile {
     pub fn dark() -> Self {
         Self {
@@ -114,6 +116,7 @@ impl<'a> LogRender<'a> {
     }
 
     #[inline(always)]
+    #[allow(unused)]
     pub(crate) fn color_set_back(&mut self, dst: &mut Vec<u8>, back: &'static [u8]) {
         self.color_back = Some(back);
         dst.extend_from_slice(back);
@@ -187,11 +190,13 @@ impl<'a> LogRender<'a> {
     }
 
     #[inline(always)]
+    #[allow(unused)]
     pub(crate) fn color_st_dots(&mut self, dst: &mut Vec<u8>) {
         dst.extend_from_slice(self.color_profile.st_dots);
     }
 
     #[inline(always)]
+    #[allow(unused)]
     pub(crate) fn color_st_text(&mut self, dst: &mut Vec<u8>) {
         dst.extend_from_slice(self.color_profile.st_text);
     }

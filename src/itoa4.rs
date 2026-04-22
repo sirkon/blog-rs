@@ -4,10 +4,8 @@ use std::ptr::write_unaligned;
 static ITOA_TABLE: &[u8; 40000] = include_bytes!("itoa4.bin");
 const N: u64 = 10000;
 
-pub(crate) unsafe fn itoa(mut dst: *mut u8, v: i64) {}
-
 #[inline(always)]
-unsafe fn append_utoa_short(mut dst: *mut u8, v: u64) -> *mut u8 {
+unsafe fn append_utoa_short(dst: *mut u8, v: u64) -> *mut u8 {
     unsafe {
         let src = ITOA_TABLE.as_ptr() as *const u32;
         let vv = *src.add(v as usize);
@@ -15,20 +13,19 @@ unsafe fn append_utoa_short(mut dst: *mut u8, v: u64) -> *mut u8 {
         if v < 10 {
             let x = vv >> 24;
             (dst as *mut u32).write_unaligned(x);
-            return dst.add(1)
+            return dst.add(1);
         }
 
         if v < 100 {
             let x = vv >> 16;
             (dst as *mut u32).write_unaligned(x);
-            return dst.add(2)
+            return dst.add(2);
         }
 
         if v < 1000 {
             let x = vv >> 8;
             (dst as *mut u32).write_unaligned(x);
-            return dst.add(3)
-
+            return dst.add(3);
         }
 
         write_unaligned(dst as *mut u32, vv);
@@ -51,7 +48,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo2 = hi1 % N;
         if hi2 == 0 {
             dst = append_utoa_short(dst, lo2);
-            let mut x: u32 = *src.add(lo1 as usize);
+            let x: u32 = *src.add(lo1 as usize);
             write_unaligned::<u32>(dst as *mut u32, x);
             return dst.add(4);
         }
@@ -102,25 +99,21 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
 
 #[inline(always)]
 pub(crate) unsafe fn append_itoa(mut dst: *mut u8, v: i64) -> *mut u8 {
-    if v < 0 {
-        dst = dst.append_byte(b'-');
+    unsafe {
+        if v < 0 {
+            dst = dst.append_byte(b'-');
+        }
+        let vv = v.unsigned_abs();
+        append_utoa(dst, vv)
     }
-    let vv = v.unsigned_abs();
-    append_utoa(dst, vv)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::itoa4::{append_itoa, append_utoa, itoa};
+    use crate::itoa4::{append_itoa, append_utoa};
 
     #[test]
     fn test_utoa() {
-        #[derive(Copy, Clone, Debug)]
-        struct TestSample {
-            value: u64,
-            want:  &'static str,
-        }
-
         let tests = [
             0,
             1,

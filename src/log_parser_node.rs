@@ -82,10 +82,12 @@ impl Node {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn key_pair(self) -> (usize, usize) {
         (self.key_len as usize, self.key_off as usize)
     }
 
+    #[allow(unused)]
     pub(crate) fn last(self) -> bool {
         self.is_last != 0
     }
@@ -98,6 +100,7 @@ impl Node {
 /// - 128…255 hierarchy roots.
 #[repr(u32)]
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[allow(unused)]
 pub(crate) enum NodeKind {
     // Values
     Bool           = 0,
@@ -151,6 +154,7 @@ pub(crate) enum NodeKind {
 }
 
 impl NodeKind {
+    #[allow(unused)]
     pub(crate) fn string(&self) -> &'static str {
         match self {
             NodeKind::Bool => "bool",

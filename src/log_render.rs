@@ -11,60 +11,52 @@ use std::io::Read;
 use std::slice;
 
 pub struct LogRender<'a> {
-    pub(crate) itoa:      itoa::Buffer,
-    pub(crate) ryu:       ryu::Buffer,
-    pub(crate) buf:       Vec<u8>,
+    pub(crate) itoa: itoa::Buffer,
+    pub(crate) ryu: ryu::Buffer,
+    pub(crate) buf: Vec<u8>,
     pub(crate) need_tree: bool,
     pub(crate) err_stack: Vec<(usize, usize)>,
 
     pub(crate) tree_always: bool,
-    pub(crate) tree_stack:  Vec<(u64, isize)>,
+    pub(crate) tree_stack: Vec<(u64, isize)>,
     pub(crate) tree_prefix: u64,
-    pub(crate) tree_depth:  isize,
+    pub(crate) tree_depth: isize,
 
-    pub(crate) expand_array_since:   usize,
+    pub(crate) expand_array_since: usize,
     pub(crate) expand_context_since: usize,
 
     pub(crate) color_profile: ColorProfile,
-    pub(crate) color_back:    Option<&'static [u8]>,
+    pub(crate) color_back: Option<&'static [u8]>,
 
-    pub(crate) time:  u64,
+    pub(crate) time: u64,
     pub(crate) level: u8,
-    pub(crate) loc:   Option<(usize, usize, usize)>,
-    pub(crate) msg:   (usize, usize),
-    pub(crate) ctx:   &'a [Node],
+    pub(crate) loc: Option<(usize, usize, usize)>,
+    pub(crate) msg: (usize, usize),
+    pub(crate) ctx: &'a [Node],
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub(crate) enum RenderGroupType {
-    Root,
-    Group,
-    Error,
-    ErrorEmbed,
-    ErrorStage,
-}
-
+#[allow(private_interfaces)]
 impl<'a> LogRender<'a> {
     pub fn new(color_profile: ColorProfile) -> Self {
         Self {
-            itoa:                 itoa::Buffer::new(),
-            ryu:                  ryu::Buffer::new(),
-            buf:                  Vec::with_capacity(4096),
-            need_tree:            false,
-            err_stack:            Vec::with_capacity(16),
-            tree_always:          false,
-            tree_stack:           Vec::with_capacity(16),
-            tree_prefix:          0,
-            tree_depth:           0,
-            expand_array_since:   8,
+            itoa: itoa::Buffer::new(),
+            ryu: ryu::Buffer::new(),
+            buf: Vec::with_capacity(4096),
+            need_tree: false,
+            err_stack: Vec::with_capacity(16),
+            tree_always: false,
+            tree_stack: Vec::with_capacity(16),
+            tree_prefix: 0,
+            tree_depth: 0,
+            expand_array_since: 8,
             expand_context_since: 6,
-            color_profile:        color_profile,
-            color_back:           None,
-            time:                 0,
-            level:                0,
-            loc:                  None,
-            msg:                  (0, 0),
-            ctx:                  &[],
+            color_profile: color_profile,
+            color_back: None,
+            time: 0,
+            level: 0,
+            loc: None,
+            msg: (0, 0),
+            ctx: &[],
         }
     }
 
@@ -102,7 +94,7 @@ impl<'a> LogRender<'a> {
                 self.color_reset(dst);
                 self.color_set_back_ctx(dst);
 
-                if (self.need_tree || self.tree_always) {
+                if self.need_tree || self.tree_always {
                     self.render_tree(dst, src);
                 } else {
                     self.render_json(dst, src);

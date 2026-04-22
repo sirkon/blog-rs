@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod test {
-    use std::fs;
     use crate::log_parser::LogParser;
     use crate::log_render::LogRender;
     use crate::log_render_color::ColorProfile;
-    use std::io::{BufWriter, Write};
     use crate::log_transfomer_into_json::LogTransfomer;
+    use std::fs;
+    use std::io::{BufWriter, Write};
 
     #[test]
     fn test_large_file() {
@@ -16,7 +16,7 @@ mod test {
         let mut writer = BufWriter::with_capacity(2 * 1024 * 1024, file);
 
         let mut dst: Vec<u8> = Vec::with_capacity(128 * 1024);
-        let mut parser = LogParser::new();
+        let parser = LogParser::new();
 
         let mut render = LogTransfomer::new();
 
@@ -31,7 +31,7 @@ mod test {
                 // rdata = x;
             }
             dst.push(b'\n');
-            // writer.write_all(&dst).unwrap();
+            writer.write_all(&dst).unwrap();
             line.clear();
             line.extend_from_slice(&mut dst);
             count += 1;
@@ -43,13 +43,13 @@ mod test {
     #[test]
     fn showcase_for_log_parser_and_render() {
         let files = &[
-            &"./src/testdata/message_only.bin",
-            &"./src/testdata/message_short_flat_context.bin",
+            // &"./src/testdata/message_only.bin",
+            // &"./src/testdata/message_short_flat_context.bin",
             &"./src/testdata/message_with_binary_in_ctx.bin",
             &"./src/testdata/message_with_loads_of_slices.bin",
             &"./src/testdata/group.bin",
-            &"./src/testdata/errors.bin",
-            &"./src/testdata/error_intmixed.bin",
+            // &"./src/testdata/errors.bin",
+            // &"./src/testdata/error_intmixed.bin",
             &"./src/testdata/error_foreign_root.bin",
             &"./src/testdata/panic.bin",
         ];
@@ -60,13 +60,15 @@ mod test {
         }
     }
 
+    #[allow(unused_variables)]
+    #[allow(unused)]
     fn show_json_output(file: &str) {
-        let data = fs::read(file).unwrap();
-        let rdata = data.as_slice();
+        // let data = fs::read(file).unwrap();
+        // let rdata = data.as_slice();
 
         unsafe {
             let mut dst: Vec<u8> = Vec::new();
-            let mut render = LogTransfomer::new();
+            let render = LogTransfomer::new();
             // render.transform_json(&mut dst, rdata).unwrap();
             dst.push(b'\n');
 

@@ -21,27 +21,27 @@ use std::slice;
 
 /// Transforms log record into pure JSON.
 pub struct LogTransfomer {
-    pub(crate) itoa:      itoa::Buffer,
-    pub(crate) ryu:       ryu::Buffer,
-    pub(crate) buf:       Vec<u8>,
+    pub(crate) itoa: itoa::Buffer,
+    pub(crate) ryu: ryu::Buffer,
+    pub(crate) buf: Vec<u8>,
     pub(crate) err_frags: Vec<(usize, usize)>,
-    pub(crate) fmtbuf:    Vec<u8>,
+    pub(crate) fmtbuf: Vec<u8>,
 
     pub(crate) max_log_size: usize,
-    pub(crate) format_time:  bool,
+    pub(crate) format_time: bool,
 }
 
 impl LogTransfomer {
     pub fn new() -> Self {
         Self {
-            itoa:      itoa::Buffer::new(),
-            ryu:       ryu::Buffer::new(),
-            buf:       Vec::with_capacity(4096),
+            itoa: itoa::Buffer::new(),
+            ryu: ryu::Buffer::new(),
+            buf: Vec::with_capacity(4096),
             err_frags: Vec::with_capacity(16),
-            fmtbuf:    Vec::with_capacity(4096),
+            fmtbuf: Vec::with_capacity(4096),
 
             max_log_size: 1 * 1024 * 1024,
-            format_time:  false,
+            format_time: false,
         }
     }
 
@@ -194,301 +194,305 @@ impl LogTransfomer {
         mut off: usize,
         cap: usize,
     ) -> Result<*mut u8, ErrorLogParse> {
-        let mut error_depth = 0;
-        let mut err_text = (0usize, 0usize);
-        let mut old = true;
-        let mut is_embed_error = false;
+        unsafe {
+            let mut error_depth = 0;
+            let mut err_text = (0usize, 0usize);
+            let mut old = true;
+            let mut is_embed_error = false;
 
-        while off < cap {
-            let kind = *ptr.add(off) as ValueKind;
-            off += 1;
+            while off < cap {
+                let kind = *ptr.add(off) as ValueKind;
+                off += 1;
 
-            // First match to filter out things that don't follow common key->value layout.
-            match kind {
-                value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
-                    if old {
-                        dst = dst.append_byte(b',');
-                    }
-                    old = true;
-                    dst = dst.append(b"\"CTX\":{");
-                    old = false;
-                    error_depth += 1;
-                    continue;
-                }
-                value_kind::PHANTOM_CONTEXT_NODE => {
-                    continue;
-                }
-                value_kind::NEW_NODE => {
-                    if old {
-                        dst = dst.append_byte(b',');
-                    }
-                    old = true;
-                    let (length, size) = read_uvarint(ptr.add(off));
-                    off += size;
-                    self.fmtbuf.clear();
-                    self.fmtbuf.extend_from_slice(b"NEW: ");
-                    self.fmtbuf
-                        .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
-                    if !is_embed_error {
-                        self.err_frags.push((length as usize, off));
-                    }
-                    off += length as usize;
-                    dst = dst.append_escaped(self.fmtbuf.as_slice());
-                    dst = dst.append(b":{");
-                    error_depth += 1;
-                    old = false;
-                    continue;
-                }
-                value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
-                    if old {
-                        dst = dst.append_byte(b',');
-                    }
-                    old = true;
-                    let (length, size) = read_uvarint(ptr.add(off));
-                    off += size;
-                    self.fmtbuf.clear();
-                    self.fmtbuf.extend_from_slice(b"NEW: ");
-                    self.fmtbuf
-                        .extend_from_slice(slice::from_raw_parts(ptr.add(off), length as usize));
-                    if !is_embed_error {
-                        self.err_frags.push((length as usize, off));
-                    }
-                    off += length as usize;
-                    dst = dst.append_escaped(self.fmtbuf.as_slice());
-                    dst = dst.append(b":{");
-                    error_depth += 1;
-                    old = false;
-                    continue;
-                }
-                value_kind::FOREIGN_ERROR_TEXT => {
-                    let (length, size) = read_uvarint(ptr.add(off));
-                    off += size;
-                    if !is_embed_error {
-                        self.err_frags.push((length as usize, off));
-                    }
-                    off += length as usize;
-                    continue;
-                }
-                value_kind::LOCATION_NODE => {
-                    if old {
-                        dst = dst.append_byte(b',');
-                    }
-                    old = true;
-                    dst = dst.append(JSON_ERROR_LOC);
-                    let (mut length, mut size) = read_uvarint(ptr.add(off));
-                    off += size;
-                    self.fmtbuf.clear();
-                    self.fmtbuf.reserve(length as usize * 8);
-                    dst = dst.append_escaped_ptr(ptr.add(off), length as usize);
-                    dst = dst.sub(1);
-                    dst = dst.append_byte(b':');
-                    off += length as usize;
-                    (length, size) = read_uvarint(ptr.add(off));
-                    dst = dst.append_utoa(length);
-                    dst = dst.append_byte(b'"');
-                    off += size;
-                    continue;
-                }
-                value_kind::GROUP_END => {
-                    old = true;
-                    if error_depth == 0 {
-                        dst = dst.append_byte(b'}');
-                        continue;
-                    }
-                    error_depth -= 1;
-                    if error_depth > 0 {
-                        dst = dst.append_byte(b'}');
-                        continue;
-                    }
-                    dst = dst.append_byte(b'}').append_byte(b',');
-                    dst = dst.append(JSON_ERROR_TXT);
-                    if is_embed_error {
-                        let (len, off) = err_text;
-                        dst = dst.append_escaped_ptr(ptr.add(off), len);
-                    } else {
-                        self.fmtbuf.clear();
-                        for (i, (len, off)) in self.err_frags.iter().rev().enumerate() {
-                            if i > 0 {
-                                self.fmtbuf.extend_from_slice(b": ")
-                            }
-                            self.fmtbuf
-                                .extend_from_slice(slice::from_raw_parts(ptr.add(*off), *len));
+                // First match to filter out things that don't follow common key->value layout.
+                match kind {
+                    value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
+                        if old {
+                            dst = dst.append_byte(b',');
                         }
-                        dst = dst.append_escaped(self.fmtbuf.as_slice());
+                        dst = dst.append(b"\"CTX\":{");
+                        old = false;
+                        error_depth += 1;
+                        continue;
                     }
-                    dst = dst.append(b"}");
-                    continue;
-                }
-                _ => {
-                    if old {
-                        dst = dst.append_byte(b',');
+                    value_kind::PHANTOM_CONTEXT_NODE => {
+                        continue;
                     }
-                    old = true;
-                }
-            }
-
-            // Common layout it is.
-
-            // Write key.
-            let mut key_len: usize = 0;
-            let mut key_off: usize = 0;
-            let v = *(ptr.add(off));
-            if v != 0 {
-                let (length, size) = read_uvarint(ptr.add(off));
-                key_len = length as usize;
-                key_off = (off + size);
-                off += size + length as usize;
-                dst = dst.append_escaped_ptr(ptr.add(key_off), key_len);
-            } else {
-                let (length, size) = read_uvarint(ptr.add(off + 1));
-                key_len = 0;
-                key_off = length as usize;
-                match predefined_keys_safe(key_off as ValueKind) {
-                    Ok(v) => {
-                        dst = dst.append_quoted(v);
-                    }
-                    Err(_) => {
-                        return Err(ErrorLogParse::RecordContextNodePredefinedKeyUnknown(
-                            key_off as u64,
+                    value_kind::NEW_NODE => {
+                        if old {
+                            dst = dst.append_byte(b',');
+                        }
+                        let (length, size) = read_uvarint(ptr.add(off));
+                        off += size;
+                        self.fmtbuf.clear();
+                        self.fmtbuf.extend_from_slice(b"NEW: ");
+                        self.fmtbuf.extend_from_slice(slice::from_raw_parts(
+                            ptr.add(off),
+                            length as usize,
                         ));
+                        if !is_embed_error {
+                            self.err_frags.push((length as usize, off));
+                        }
+                        off += length as usize;
+                        dst = dst.append_escaped(self.fmtbuf.as_slice());
+                        dst = dst.append(b":{");
+                        error_depth += 1;
+                        old = false;
+                        continue;
+                    }
+                    value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
+                        if old {
+                            dst = dst.append_byte(b',');
+                        }
+                        let (length, size) = read_uvarint(ptr.add(off));
+                        off += size;
+                        self.fmtbuf.clear();
+                        self.fmtbuf.extend_from_slice(b"NEW: ");
+                        self.fmtbuf.extend_from_slice(slice::from_raw_parts(
+                            ptr.add(off),
+                            length as usize,
+                        ));
+                        if !is_embed_error {
+                            self.err_frags.push((length as usize, off));
+                        }
+                        off += length as usize;
+                        dst = dst.append_escaped(self.fmtbuf.as_slice());
+                        dst = dst.append(b":{");
+                        error_depth += 1;
+                        old = false;
+                        continue;
+                    }
+                    value_kind::FOREIGN_ERROR_TEXT => {
+                        let (length, size) = read_uvarint(ptr.add(off));
+                        off += size;
+                        if !is_embed_error {
+                            self.err_frags.push((length as usize, off));
+                        }
+                        off += length as usize;
+                        continue;
+                    }
+                    value_kind::LOCATION_NODE => {
+                        if old {
+                            dst = dst.append_byte(b',');
+                        }
+                        old = true;
+                        dst = dst.append(JSON_ERROR_LOC);
+                        let (mut length, mut size) = read_uvarint(ptr.add(off));
+                        off += size;
+                        self.fmtbuf.clear();
+                        self.fmtbuf.reserve(length as usize * 8);
+                        dst = dst.append_escaped_ptr(ptr.add(off), length as usize);
+                        dst = dst.sub(1);
+                        dst = dst.append_byte(b':');
+                        off += length as usize;
+                        (length, size) = read_uvarint(ptr.add(off));
+                        dst = dst.append_utoa(length);
+                        dst = dst.append_byte(b'"');
+                        off += size;
+                        continue;
+                    }
+                    value_kind::GROUP_END => {
+                        old = true;
+                        if error_depth == 0 {
+                            dst = dst.append_byte(b'}');
+                            continue;
+                        }
+                        error_depth -= 1;
+                        if error_depth > 0 {
+                            dst = dst.append_byte(b'}');
+                            continue;
+                        }
+                        dst = dst.append_byte(b'}').append_byte(b',');
+                        dst = dst.append(JSON_ERROR_TXT);
+                        if is_embed_error {
+                            let (len, off) = err_text;
+                            dst = dst.append_escaped_ptr(ptr.add(off), len);
+                        } else {
+                            self.fmtbuf.clear();
+                            for (i, (len, off)) in self.err_frags.iter().rev().enumerate() {
+                                if i > 0 {
+                                    self.fmtbuf.extend_from_slice(b": ")
+                                }
+                                self.fmtbuf
+                                    .extend_from_slice(slice::from_raw_parts(ptr.add(*off), *len));
+                            }
+                            dst = dst.append_escaped(self.fmtbuf.as_slice());
+                        }
+                        dst = dst.append(b"}");
+                        continue;
+                    }
+                    _ => {
+                        if old {
+                            dst = dst.append_byte(b',');
+                        }
+                        old = true;
                     }
                 }
-                off += size + 1;
+
+                // Common layout it is.
+
+                // Write key.
+                #[allow(unused_assignments)]
+                let mut key_len: usize = 0;
+                #[allow(unused_assignments)]
+                let mut key_off: usize = 0;
+                let v = *(ptr.add(off));
+                if v != 0 {
+                    let (length, size) = read_uvarint(ptr.add(off));
+                    key_len = length as usize;
+                    key_off = off + size;
+                    off += size + length as usize;
+                    dst = dst.append_escaped_ptr(ptr.add(key_off), key_len);
+                } else {
+                    let (length, size) = read_uvarint(ptr.add(off + 1));
+                    key_off = length as usize;
+                    match predefined_keys_safe(key_off as ValueKind) {
+                        Ok(v) => {
+                            dst = dst.append_quoted(v);
+                        }
+                        Err(_) => {
+                            return Err(ErrorLogParse::RecordContextNodePredefinedKeyUnknown(
+                                key_off as u64,
+                            ));
+                        }
+                    }
+                    off += size + 1;
+                }
+                dst = dst.append_byte(b':');
+
+                // Write value.
+                match kind {
+                    // These values will not just be shown here.
+                    //  value_kind::JUST_CONTEXT_NODE
+                    //  | value_kind::JUST_CONTEXT_INHERITED_NODE
+                    //  | value_kind::NEW_NODE
+                    //  | value_kind::WRAP_NODE
+                    //  | value_kind::WRAP_INHERITED_NODE
+                    //  | value_kind::FOREIGN_ERROR_TEXT
+                    //  | value_kind::LOCATION_NODE
+                    //  | value_kind::GROUP_END
+                    //  | value_kind::PHANTOM_CONTEXT_NODE => {}
+                    value_kind::BOOL => {
+                        (dst, off) = self.render_json::<bool>(dst, ptr, off);
+                    }
+                    value_kind::TIME => {
+                        (dst, off) = self.render_json::<TransformTime>(dst, ptr, off);
+                    }
+                    value_kind::DURATION => {
+                        (dst, off) = self.render_json::<TransformDuration>(dst, ptr, off);
+                    }
+                    value_kind::I | value_kind::I64 => {
+                        (dst, off) = self.render_json::<i64>(dst, ptr, off);
+                    }
+                    value_kind::IVAR => {
+                        (dst, off) = self.render_json::<TransformIvar>(dst, ptr, off);
+                    }
+                    value_kind::I8 => {
+                        (dst, off) = self.render_json::<i8>(dst, ptr, off);
+                    }
+                    value_kind::I16 => {
+                        (dst, off) = self.render_json::<i16>(dst, ptr, off);
+                    }
+                    value_kind::I32 => {
+                        (dst, off) = self.render_json::<i32>(dst, ptr, off);
+                    }
+                    value_kind::U | value_kind::U64 => {
+                        (dst, off) = self.render_json::<u64>(dst, ptr, off);
+                    }
+                    value_kind::UVAR => {
+                        (dst, off) = self.render_json::<TransformUvar>(dst, ptr, off);
+                    }
+                    value_kind::U8 => {
+                        (dst, off) = self.render_json::<u8>(dst, ptr, off);
+                    }
+                    value_kind::U16 => {
+                        (dst, off) = self.render_json::<u16>(dst, ptr, off);
+                    }
+                    value_kind::U32 => {
+                        (dst, off) = self.render_json::<u32>(dst, ptr, off);
+                    }
+                    value_kind::FLOAT32 => {
+                        (dst, off) = self.render_json::<f32>(dst, ptr, off);
+                    }
+                    value_kind::FLOAT64 => {
+                        (dst, off) = self.render_json::<f64>(dst, ptr, off);
+                    }
+                    value_kind::STRING => {
+                        (dst, off) = self.render_json::<TransformString>(dst, ptr, off);
+                    }
+                    value_kind::BYTES => {
+                        (dst, off) = self.render_json::<TransformBytes>(dst, ptr, off);
+                    }
+                    value_kind::ERROR_RAW => {
+                        (dst, off) = self.render_json::<TransformString>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_BOOL => {
+                        (dst, off) = self.render_slice_json::<bool>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_I | value_kind::SLICE_I64 => {
+                        (dst, off) = self.render_slice_json::<i64>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_I8 => {
+                        (dst, off) = self.render_slice_json::<i8>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_I16 => {
+                        (dst, off) = self.render_slice_json::<i16>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_I32 => {
+                        (dst, off) = self.render_slice_json::<i32>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_U | value_kind::SLICE_U64 => {
+                        (dst, off) = self.render_slice_json::<u64>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_U8 => {
+                        (dst, off) = self.render_slice_json::<u8>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_U16 => {
+                        (dst, off) = self.render_slice_json::<u16>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_U32 => {
+                        (dst, off) = self.render_slice_json::<u32>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_F32 => {
+                        (dst, off) = self.render_slice_json::<f32>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_F64 => {
+                        (dst, off) = self.render_slice_json::<f64>(dst, ptr, off);
+                    }
+                    value_kind::SLICE_STRING => {
+                        (dst, off) = self.render_slice_json::<TransformString>(dst, ptr, off);
+                    }
+
+                    value_kind::GROUP => {
+                        old = false;
+                        dst = dst.append_byte(b'{');
+                    }
+                    value_kind::ERROR => {
+                        is_embed_error = false;
+                        error_depth += 1;
+                        dst = dst.append(JSON_ERROR_CTX);
+                        old = false;
+                        self.err_frags.clear();
+                    }
+                    value_kind::ERROR_EMBED => {
+                        is_embed_error = true;
+                        error_depth += 1;
+                        dst = dst.append(JSON_ERROR_CTX);
+                        old = false;
+                        let (len, size) = read_uvarint(ptr.add(off));
+                        off += size;
+                        err_text = (len as usize, off);
+                        off += len as usize;
+                    }
+
+                    _ => {
+                        return Err(ErrorLogParse::RecordContextNodePredefinedKeyUnknown(kind));
+                    }
+                }
             }
-            dst = dst.append_byte(b':');
 
-            // Write value.
-            match kind {
-                // These values will not just be shown here.
-                //  value_kind::JUST_CONTEXT_NODE
-                //  | value_kind::JUST_CONTEXT_INHERITED_NODE
-                //  | value_kind::NEW_NODE
-                //  | value_kind::WRAP_NODE
-                //  | value_kind::WRAP_INHERITED_NODE
-                //  | value_kind::FOREIGN_ERROR_TEXT
-                //  | value_kind::LOCATION_NODE
-                //  | value_kind::GROUP_END
-                //  | value_kind::PHANTOM_CONTEXT_NODE => {}
-                value_kind::BOOL => {
-                    (dst, off) = self.render_json::<bool>(dst, ptr, off);
-                }
-                value_kind::TIME => {
-                    (dst, off) = self.render_json::<TransformTime>(dst, ptr, off);
-                }
-                value_kind::DURATION => {
-                    (dst, off) = self.render_json::<TransformDuration>(dst, ptr, off);
-                }
-                value_kind::I | value_kind::I64 => {
-                    (dst, off) = self.render_json::<i64>(dst, ptr, off);
-                }
-                value_kind::IVAR => {
-                    (dst, off) = self.render_json::<TransformIvar>(dst, ptr, off);
-                }
-                value_kind::I8 => {
-                    (dst, off) = self.render_json::<i8>(dst, ptr, off);
-                }
-                value_kind::I16 => {
-                    (dst, off) = self.render_json::<i16>(dst, ptr, off);
-                }
-                value_kind::I32 => {
-                    (dst, off) = self.render_json::<i32>(dst, ptr, off);
-                }
-                value_kind::U | value_kind::U64 => {
-                    (dst, off) = self.render_json::<u64>(dst, ptr, off);
-                }
-                value_kind::UVAR => {
-                    (dst, off) = self.render_json::<TransformUvar>(dst, ptr, off);
-                }
-                value_kind::U8 => {
-                    (dst, off) = self.render_json::<u8>(dst, ptr, off);
-                }
-                value_kind::U16 => {
-                    (dst, off) = self.render_json::<u16>(dst, ptr, off);
-                }
-                value_kind::U32 => {
-                    (dst, off) = self.render_json::<u32>(dst, ptr, off);
-                }
-                value_kind::FLOAT32 => {
-                    (dst, off) = self.render_json::<f32>(dst, ptr, off);
-                }
-                value_kind::FLOAT64 => {
-                    (dst, off) = self.render_json::<f64>(dst, ptr, off);
-                }
-                value_kind::STRING => {
-                    (dst, off) = self.render_json::<TransformString>(dst, ptr, off);
-                }
-                value_kind::BYTES => {
-                    (dst, off) = self.render_json::<TransformBytes>(dst, ptr, off);
-                }
-                value_kind::ERROR_RAW => {
-                    (dst, off) = self.render_json::<TransformString>(dst, ptr, off);
-                }
-                value_kind::SLICE_BOOL => {
-                    (dst, off) = self.render_slice_json::<bool>(dst, ptr, off);
-                }
-                value_kind::SLICE_I | value_kind::SLICE_I64 => {
-                    (dst, off) = self.render_slice_json::<i64>(dst, ptr, off);
-                }
-                value_kind::SLICE_I8 => {
-                    (dst, off) = self.render_slice_json::<i8>(dst, ptr, off);
-                }
-                value_kind::SLICE_I16 => {
-                    (dst, off) = self.render_slice_json::<i16>(dst, ptr, off);
-                }
-                value_kind::SLICE_I32 => {
-                    (dst, off) = self.render_slice_json::<i32>(dst, ptr, off);
-                }
-                value_kind::SLICE_U | value_kind::SLICE_U64 => {
-                    (dst, off) = self.render_slice_json::<u64>(dst, ptr, off);
-                }
-                value_kind::SLICE_U8 => {
-                    (dst, off) = self.render_slice_json::<u8>(dst, ptr, off);
-                }
-                value_kind::SLICE_U16 => {
-                    (dst, off) = self.render_slice_json::<u16>(dst, ptr, off);
-                }
-                value_kind::SLICE_U32 => {
-                    (dst, off) = self.render_slice_json::<u32>(dst, ptr, off);
-                }
-                value_kind::SLICE_F32 => {
-                    (dst, off) = self.render_slice_json::<f32>(dst, ptr, off);
-                }
-                value_kind::SLICE_F64 => {
-                    (dst, off) = self.render_slice_json::<f64>(dst, ptr, off);
-                }
-                value_kind::SLICE_STRING => {
-                    (dst, off) = self.render_slice_json::<TransformString>(dst, ptr, off);
-                }
-
-                value_kind::GROUP => {
-                    old = false;
-                    dst = dst.append_byte(b'{');
-                }
-                value_kind::ERROR => {
-                    is_embed_error = false;
-                    error_depth += 1;
-                    dst = dst.append(JSON_ERROR_CTX);
-                    old = false;
-                    self.err_frags.clear();
-                }
-                value_kind::ERROR_EMBED => {
-                    is_embed_error = true;
-                    error_depth += 1;
-                    dst = dst.append(JSON_ERROR_CTX);
-                    old = false;
-                    let (len, size) = read_uvarint(ptr.add(off));
-                    off += size;
-                    err_text = (len as usize, off);
-                    off += len as usize;
-                }
-
-                _ => {
-                    return Err(ErrorLogParse::RecordContextNodePredefinedKeyUnknown(kind));
-                }
-            }
+            Ok(dst)
         }
-
-        Ok(dst)
     }
 
     #[inline(always)]

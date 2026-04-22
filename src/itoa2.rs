@@ -1,13 +1,12 @@
+#![allow(unused)]
 use crate::pointer_ext::PointerExt;
 use std::ptr::write_unaligned;
 
 static ITOA_TABLE: &[u8; 200] = include_bytes!("itoa2.bin");
 const N: u64 = 100;
 
-pub(crate) unsafe fn itoa(mut dst: *mut u8, v: i64) {}
-
 #[inline(always)]
-unsafe fn append_utoa_short(mut dst: *mut u8, v: u64) -> *mut u8 {
+unsafe fn append_utoa_short(dst: *mut u8, v: u64) -> *mut u8 {
     unsafe {
         let src = ITOA_TABLE.as_ptr() as *const u16;
         let vv = *src.add(v as usize);
@@ -15,9 +14,8 @@ unsafe fn append_utoa_short(mut dst: *mut u8, v: u64) -> *mut u8 {
         if v < 10 {
             let x = vv >> 8;
             (dst as *mut u16).write_unaligned(x);
-            return dst.add(1)
+            return dst.add(1);
         }
-
 
         write_unaligned(dst as *mut u16, vv);
         dst.add(2)
@@ -39,7 +37,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo2 = hi1 % N;
         if hi2 == 0 {
             dst = append_utoa_short(dst, lo2);
-            let mut x  = *src.add(lo1 as usize);
+            let x = *src.add(lo1 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             return dst.add(2);
         }
@@ -48,7 +46,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo3 = hi2 % N;
         if hi3 == 0 {
             dst = append_utoa_short(dst, lo3);
-            let mut x  = *src.add(lo2 as usize);
+            let mut x = *src.add(lo2 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
             x = *src.add(lo1 as usize);
@@ -60,7 +58,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo4 = hi3 % N;
         if hi4 == 0 {
             dst = append_utoa_short(dst, lo4);
-            let mut x  = *src.add(lo3 as usize);
+            let mut x = *src.add(lo3 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
             x = *src.add(lo2 as usize);
@@ -75,7 +73,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo5 = hi4 % N;
         if hi5 == 0 {
             dst = append_utoa_short(dst, lo5);
-            let mut x  = *src.add(lo4 as usize);
+            let mut x = *src.add(lo4 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
             x = *src.add(lo3 as usize);
@@ -93,7 +91,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo6 = hi6 % N;
         if hi6 == 0 {
             dst = append_utoa_short(dst, lo6);
-            let mut x  = *src.add(lo5 as usize);
+            let mut x = *src.add(lo5 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
             x = *src.add(lo4 as usize);
@@ -114,7 +112,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo7 = hi7 % N;
         if hi7 == 0 {
             dst = append_utoa_short(dst, lo7);
-            let mut x  = *src.add(lo6 as usize);
+            let mut x = *src.add(lo6 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
             x = *src.add(lo5 as usize);
@@ -138,7 +136,7 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo8 = hi8 % N;
         if hi8 == 0 {
             dst = append_utoa_short(dst, lo8);
-            let mut x  = *src.add(lo7 as usize);
+            let mut x = *src.add(lo7 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
             x = *src.add(lo6 as usize);
@@ -165,10 +163,10 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
         let lo9 = hi8 % N;
         if hi9 == 0 {
             dst = append_utoa_short(dst, lo9);
-            let mut x  = *src.add(lo8 as usize);
+            let mut x = *src.add(lo8 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
-            x  = *src.add(lo7 as usize);
+            x = *src.add(lo7 as usize);
             write_unaligned::<u16>(dst as *mut u16, x);
             dst = dst.add(2);
             x = *src.add(lo6 as usize);
@@ -193,13 +191,13 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
 
         let lo10 = hi9 / N;
         dst = append_utoa_short(dst, lo10);
-        let mut x  = *src.add(lo9 as usize);
+        let mut x = *src.add(lo9 as usize);
         write_unaligned::<u16>(dst as *mut u16, x);
         dst = dst.add(2);
-        x  = *src.add(lo8 as usize);
+        x = *src.add(lo8 as usize);
         write_unaligned::<u16>(dst as *mut u16, x);
         dst = dst.add(2);
-        x  = *src.add(lo7 as usize);
+        x = *src.add(lo7 as usize);
         write_unaligned::<u16>(dst as *mut u16, x);
         dst = dst.add(2);
         x = *src.add(lo6 as usize);
@@ -225,23 +223,25 @@ pub(crate) unsafe fn append_utoa(mut dst: *mut u8, v: u64) -> *mut u8 {
 
 #[inline(always)]
 pub(crate) unsafe fn append_itoa(mut dst: *mut u8, v: i64) -> *mut u8 {
-    if v < 0 {
-        dst = dst.append_byte(b'-');
+    unsafe {
+        if v < 0 {
+            dst = dst.append_byte(b'-');
+        }
+        let vv = v.unsigned_abs();
+        append_utoa(dst, vv)
     }
-    let vv = v.unsigned_abs();
-    append_utoa(dst, vv)
 }
 
 #[cfg(test)]
 mod test {
-    use crate::itoa4::{append_itoa, append_utoa, itoa};
+    use crate::itoa4::{append_itoa, append_utoa};
 
     #[test]
     fn test_utoa() {
         #[derive(Copy, Clone, Debug)]
         struct TestSample {
             value: u64,
-            want:  &'static str,
+            want: &'static str,
         }
 
         let tests = [
@@ -256,7 +256,6 @@ mod test {
             1234_5678_9012_3456_7u64,
         ];
         let mut buf: [u8; 64] = [0; 64];
-        let mut sample_buf = itoa::Buffer::new();
         for x in tests {
             let got = unsafe {
                 let mut ptr = buf.as_mut_ptr();
@@ -264,7 +263,7 @@ mod test {
                 ptr = append_utoa(ptr, x);
                 str::from_utf8_unchecked(&buf[0..ptr.offset_from(orig) as usize])
             };
-            let expected = sample_buf.format(x);
+            let expected = format!("{}", x);
             assert_eq!(got, expected);
         }
     }
