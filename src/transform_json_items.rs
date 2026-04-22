@@ -3,13 +3,13 @@
 
 use crate::log_parse::read_uvarint;
 use crate::log_rend::render_go_duration;
-use crate::log_transfomer_into_json::LogTransfomer;
+use crate::log_transfomer_into_json::LogTransfomerJSON;
 use crate::pointer_ext::PointerExt;
 use std::slice;
 
 pub(crate) trait TransformIntoJSONLiteral {
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -26,7 +26,7 @@ pub(crate) struct TransformBytes {}
 impl TransformIntoJSONLiteral for bool {
     #[inline(always)]
     unsafe fn render(
-        _t: &mut LogTransfomer,
+        _t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -48,7 +48,7 @@ impl TransformIntoJSONLiteral for TransformTime {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -65,7 +65,7 @@ impl TransformIntoJSONLiteral for TransformTime {
 impl TransformIntoJSONLiteral for TransformDuration {
     #[inline(always)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -85,7 +85,7 @@ impl TransformIntoJSONLiteral for TransformIvar {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -103,7 +103,7 @@ impl TransformIntoJSONLiteral for i64 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -121,7 +121,7 @@ impl TransformIntoJSONLiteral for i32 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -139,7 +139,7 @@ impl TransformIntoJSONLiteral for i16 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -157,7 +157,7 @@ impl TransformIntoJSONLiteral for i8 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -175,7 +175,7 @@ impl TransformIntoJSONLiteral for TransformUvar {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -193,7 +193,7 @@ impl TransformIntoJSONLiteral for u64 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -211,7 +211,7 @@ impl TransformIntoJSONLiteral for u32 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -229,7 +229,7 @@ impl TransformIntoJSONLiteral for u16 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -247,7 +247,7 @@ impl TransformIntoJSONLiteral for u8 {
     #[inline(always)]
     #[allow(unused_variables)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -264,7 +264,7 @@ impl TransformIntoJSONLiteral for u8 {
 impl TransformIntoJSONLiteral for f64 {
     #[inline(always)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -287,7 +287,7 @@ impl TransformIntoJSONLiteral for f64 {
 impl TransformIntoJSONLiteral for f32 {
     #[inline(always)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -310,7 +310,7 @@ impl TransformIntoJSONLiteral for f32 {
 impl TransformIntoJSONLiteral for TransformString {
     #[inline(always)]
     unsafe fn render(
-        _t: &mut LogTransfomer,
+        _t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,
@@ -327,7 +327,7 @@ impl TransformIntoJSONLiteral for TransformString {
 impl TransformIntoJSONLiteral for TransformBytes {
     #[inline(always)]
     unsafe fn render(
-        t: &mut LogTransfomer,
+        t: &mut LogTransfomerJSON,
         mut dst: *mut u8,
         ptr: *const u8,
         off: usize,

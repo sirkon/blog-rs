@@ -6,6 +6,7 @@ use crate::log_parse;
 use crate::log_parse::{log_parse_header, read_uvarint, read_varint};
 use crate::log_parser::LogParser;
 use crate::log_parser_node::NodeKind;
+use crate::value_kind::ValueKind;
 use std::fmt::{Display, Formatter};
 use std::slice;
 
@@ -88,21 +89,21 @@ impl LogParser {
                 self.group_depth = self.ctx.stack.len();
 
                 // Read code and continue the loop on some types that have no payload.
-                let kind = *(ptr.add(off)) as value_kind::ValueKind;
+                let kind = *(ptr.add(off) as *const ValueKind);
                 off += 1;
                 match kind {
-                    value_kind::JUST_CONTEXT_NODE | value_kind::JUST_CONTEXT_INHERITED_NODE => {
+                    ValueKind::JustContextNode => {
                         self.group_stack.push(self.ctx.ctrl.len());
                         self.ctx
                             .add(NodeKind::ErrorStageCtx, 0, 0, self.ctrl_len(), 0);
                         prev = PrevElement::Whatever;
                         continue;
                     }
-                    value_kind::PHANTOM_CONTEXT_NODE => {
+                    ValueKind::PhantomContextNode => {
                         prev = PrevElement::Whatever;
                         continue;
                     }
-                    value_kind::GROUP_END => {
+                    ValueKind::GroupEnd => {
                         self.mark_as_last(prev);
                         let start = self.group_stack.pop().unwrap();
                         self.ctx.add(NodeKind::GroupEnd, 0, 0, 0, 0);
@@ -131,10 +132,9 @@ impl LogParser {
                     off += size + 1;
                 }
 
-
                 prev = PrevElement::Whatever;
                 match kind {
-                    value_kind::NEW_NODE => {
+                    ValueKind::NewNode => {
                         self.group_stack.push(self.ctx.ctrl.len());
                         self.ctx.add(
                             NodeKind::ErrorStageNew,
@@ -144,7 +144,7 @@ impl LogParser {
                             0,
                         );
                     }
-                    value_kind::WRAP_NODE | value_kind::WRAP_INHERITED_NODE => {
+                    ValueKind::WrapNode => {
                         self.group_stack.push(self.ctx.ctrl.len());
                         self.ctx.add(
                             NodeKind::ErrorStageWrap,
@@ -154,25 +154,25 @@ impl LogParser {
                             0,
                         );
                     }
-                    value_kind::LOCATION_NODE => {
+                    ValueKind::LocationNode => {
                         let (length, size) = read_uvarint(ptr.add(off));
                         off += size;
                         self.ctx
                             .add(NodeKind::ErrLoc, key_len, key_off, 0, length as u32);
                     }
-                    value_kind::FOREIGN_ERROR_TEXT => {
+                    ValueKind::ForeignErrorText => {
                         self.ctx
                             .add(NodeKind::ErrTxtFragment, key_len, key_off, 0, 0);
                     }
 
-                    value_kind::BOOL => {
+                    ValueKind::Bool => {
                         let v = *(ptr.add(off));
                         self.ctx.add(NodeKind::Bool, key_len, key_off, 0, v as u32);
                         off += 1;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::TIME => {
+                    ValueKind::Time => {
                         let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
                         self.ctx
                             .add(NodeKind::Time, key_len, key_off, v as u32, (v >> 32) as u32);
@@ -180,7 +180,7 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::DURATION => {
+                    ValueKind::Duration => {
                         let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
                         self.ctx
                             .add(NodeKind::Dur, key_len, key_off, v as u32, (v >> 32) as u32);
@@ -188,15 +188,7 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::I => {
-                        let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
-                        self.ctx
-                            .add(NodeKind::Int, key_len, key_off, v as u32, (v >> 32) as u32);
-                        off += 8;
-                        self.ctx_size += 1;
-                    }
-
-                    value_kind::IVAR => {
+                    ValueKind::Ivar => {
                         let (value, size) = read_varint(ptr.add(off));
                         self.ctx.add(
                             NodeKind::IVar,
@@ -209,28 +201,28 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::I8 => {
+                    ValueKind::I8 => {
                         let v = *(ptr.add(off) as *const i8);
                         self.ctx.add(NodeKind::I8, key_len, key_off, 0, v as u32);
                         off += 1;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::I16 => {
+                    ValueKind::I16 => {
                         let v = u16::from_le(ptr.add(off).cast::<u16>().read_unaligned());
                         self.ctx.add(NodeKind::I16, key_len, key_off, 0, v as u32);
                         off += 2;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::I32 => {
+                    ValueKind::I32 => {
                         let v = u32::from_le(ptr.add(off).cast::<u32>().read_unaligned());
                         self.ctx.add(NodeKind::I32, key_len, key_off, 0, v as u32);
                         off += 4;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::I64 => {
+                    ValueKind::I64 => {
                         let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
                         self.ctx
                             .add(NodeKind::I64, key_len, key_off, v as u32, (v >> 32) as u32);
@@ -238,15 +230,7 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::U => {
-                        let v = ptr.add(off).cast::<u64>().read_unaligned();
-                        self.ctx
-                            .add(NodeKind::Uint, key_len, key_off, v as u32, (v >> 32) as u32);
-                        off += 8;
-                        self.ctx_size += 1;
-                    }
-
-                    value_kind::UVAR => {
+                    ValueKind::Uvar => {
                         let (value, size) = read_uvarint(ptr.add(off));
                         self.ctx.add(
                             NodeKind::UVar,
@@ -259,28 +243,28 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::U8 => {
+                    ValueKind::U8 => {
                         let v = *(ptr.add(off) as *const u8);
                         self.ctx.add(NodeKind::U8, key_len, key_off, 0, v as u32);
                         off += 1;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::U16 => {
+                    ValueKind::U16 => {
                         let v = u16::from_le(ptr.add(off).cast::<u16>().read_unaligned());
                         self.ctx.add(NodeKind::U16, key_len, key_off, 0, v as u32);
                         off += 2;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::U32 => {
+                    ValueKind::U32 => {
                         let v = u32::from_le(ptr.add(off).cast::<u32>().read_unaligned());
                         self.ctx.add(NodeKind::U32, key_len, key_off, 0, v);
                         off += 4;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::U64 => {
+                    ValueKind::U64 => {
                         let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
                         self.ctx
                             .add(NodeKind::U64, key_len, key_off, v as u32, (v >> 32) as u32);
@@ -288,14 +272,14 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::FLOAT32 => {
+                    ValueKind::Float32 => {
                         let v = u32::from_le(ptr.add(off).cast::<u32>().read_unaligned());
                         self.ctx.add(NodeKind::F32, key_len, key_off, 0, v);
                         off += 4;
                         self.ctx_size += 1;
                     }
 
-                    value_kind::FLOAT64 => {
+                    ValueKind::Float64 => {
                         let v = u64::from_le(ptr.add(off).cast::<u64>().read_unaligned());
                         self.ctx
                             .add(NodeKind::F64, key_len, key_off, v as u32, (v >> 32) as u32);
@@ -303,87 +287,77 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::STRING => {
+                    ValueKind::String => {
                         off = self.varthing(ptr, off, NodeKind::Str, key_len, key_off);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::BYTES => {
+                    ValueKind::Bytes => {
                         off = self.varthing(ptr, off, NodeKind::Bytes, key_len, key_off);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::ERROR_RAW => {
+                    ValueKind::ErrorRaw => {
                         off = self.varthing(ptr, off, NodeKind::ErrTxt, key_len, key_off);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_BOOL => {
+                    ValueKind::SliceBool => {
                         off = self.slice(ptr, off, NodeKind::Bools, key_len, key_off, 1);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_I => {
+                    ValueKind::SliceI64 => {
                         off = self.slice(ptr, off, NodeKind::Ints, key_len, key_off, 8);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_I8 => {
+                    ValueKind::SliceI8 => {
                         off = self.slice(ptr, off, NodeKind::I8s, key_len, key_off, 1);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_I16 => {
+                    ValueKind::SliceI16 => {
                         off = self.slice(ptr, off, NodeKind::I16s, key_len, key_off, 2);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_I32 => {
+                    ValueKind::SliceI32 => {
                         off = self.slice(ptr, off, NodeKind::I32s, key_len, key_off, 4);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_I64 => {
-                        off = self.slice(ptr, off, NodeKind::I64s, key_len, key_off, 8);
-                        self.ctx_size += 1;
-                    }
-
-                    value_kind::SLICE_U => {
+                    ValueKind::SliceU64 => {
                         off = self.slice(ptr, off, NodeKind::Uints, key_len, key_off, 8);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_U8 => {
+                    ValueKind::SliceU8 => {
                         off = self.slice(ptr, off, NodeKind::U8s, key_len, key_off, 1);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_U16 => {
+                    ValueKind::SliceU16 => {
                         off = self.slice(ptr, off, NodeKind::U16s, key_len, key_off, 2);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_U32 => {
+                    ValueKind::SliceU32 => {
                         off = self.slice(ptr, off, NodeKind::U32s, key_len, key_off, 4);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_U64 => {
-                        off = self.slice(ptr, off, NodeKind::U64s, key_len, key_off, 8);
-                        self.ctx_size += 1;
-                    }
-
-                    value_kind::SLICE_F32 => {
+                    ValueKind::SliceF32 => {
                         off = self.slice(ptr, off, NodeKind::F32s, key_len, key_off, 4);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_F64 => {
+                    ValueKind::SliceF64 => {
                         off = self.slice(ptr, off, NodeKind::F64s, key_len, key_off, 8);
                         self.ctx_size += 1;
                     }
 
-                    value_kind::SLICE_STRING => {
+                    ValueKind::SliceString => {
                         let (lenght, size) = read_uvarint(ptr.add(off));
                         off += size;
                         let start = off;
@@ -401,7 +375,7 @@ impl LogParser {
                         self.ctx_size += 1;
                     }
 
-                    value_kind::ERROR => {
+                    ValueKind::Error => {
                         self.group_stack.push(self.ctx.ctrl.len());
                         self.ctx
                             .add(NodeKind::Error, key_len, key_off, self.ctrl_len(), 0);
@@ -409,7 +383,7 @@ impl LogParser {
                         self.has_errors = true;
                     }
 
-                    value_kind::ERROR_EMBED => {
+                    ValueKind::ErrorEmbed => {
                         self.group_stack.push(self.ctx.ctrl.len());
                         self.ctx
                             .add(NodeKind::ErrorEmbed, key_len, key_off, self.ctrl_len(), 0);
@@ -426,7 +400,7 @@ impl LogParser {
                         self.has_errors = true;
                     }
 
-                    value_kind::GROUP => {
+                    ValueKind::Group => {
                         self.group_stack.push(self.ctx.ctrl.len());
                         self.ctx
                             .add(NodeKind::Group, key_len, key_off, self.ctrl_len(), 0);

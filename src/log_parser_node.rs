@@ -1,7 +1,8 @@
 #![allow(unused_unsafe)]
 #![allow(unsafe_code)]
 
-use crate::value_kind::{PREDEFINED_KEYS, PREDEFINED_NAME_LOCATION};
+use crate::value_kind::{PredefinedKeyCode, predefined_key};
+use jiff::tz::Dst::No;
 use std::slice;
 
 /// Defines a node of blog context structure.
@@ -38,48 +39,25 @@ impl Node {
     #[inline(always)]
     pub(crate) unsafe fn key_as_slice(&self, ptr: *const u8) -> &[u8] {
         unsafe {
-            match self.kind {
-                NodeKind::ErrLoc => {
-                    let lock_key_index = (PREDEFINED_NAME_LOCATION >> 8) - 1;
-                    let key = PREDEFINED_KEYS[lock_key_index as usize];
-                    return key.as_bytes();
+            if self.kind != NodeKind::ErrLoc {
+                if self.key_len != 0 {
+                    return slice::from_raw_parts(
+                        ptr.add(self.key_off as usize),
+                        self.key_len as usize,
+                    );
                 }
-                _ => {}
-            }
 
-            if self.key_len != 0 {
-                return slice::from_raw_parts(
-                    ptr.add(self.key_off as usize),
-                    self.key_len as usize,
-                );
+                let v = predefined_key(*(&self.key_off as *const u32 as *const PredefinedKeyCode));
+                return v.as_bytes();
+            } else {
+                "@location".as_bytes()
             }
-
-            if self.key_off >= PREDEFINED_KEYS.len() as u32 {
-                return "!unknown-key".as_bytes();
-            }
-
-            let key = PREDEFINED_KEYS[self.key_len as usize];
-            key.as_bytes()
         }
     }
 
     #[inline(always)]
     pub(crate) unsafe fn key_as_slice_direct(&self, ptr: *const u8) -> &[u8] {
-        unsafe {
-            if self.key_len != 0 {
-                return slice::from_raw_parts(
-                    ptr.add(self.key_off as usize),
-                    self.key_len as usize,
-                );
-            }
-
-            if self.key_off >= PREDEFINED_KEYS.len() as u32 {
-                return "!unknown-key".as_bytes();
-            }
-
-            let key = PREDEFINED_KEYS[self.key_len as usize];
-            key.as_bytes()
-        }
+        unsafe { self.key_as_slice(ptr) }
     }
 
     #[allow(unused)]

@@ -85,7 +85,7 @@ pub(crate) enum ErrorLogParse {
     /// Context node type is unknown.
     RecordContextNodeType(u8),
     /// Context predefined key is unkown
-    RecordContextNodePredefinedKeyUnknown(u64),
+    RecordContextNodePredefinedKeyUnknown(u32),
 }
 
 #[inline(always)]

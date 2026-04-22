@@ -4,7 +4,6 @@
 use crate::log_parser_node::{NodeKind, group_is_empty};
 use crate::log_render::LogRender;
 use crate::log_render_tree_prefixes::render_tree_prefix;
-use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_LOCATION, PREDEFINED_NAME_TEXT};
 use crate::{log_render, slice_items};
 use std::slice;
 
@@ -34,8 +33,7 @@ impl<'a> LogRender<'a> {
                     NodeKind::ErrLoc => {
                         self.render_tree_prefix(dst, is_last);
                         self.color_err_meta(dst);
-                        dst.extend_from_slice(log_render::predefined_key(PREDEFINED_NAME_LOCATION));
-                        dst.extend_from_slice(b": ");
+                        dst.extend_from_slice(b"@location: ");
                         self.color_reset(dst);
                     }
                     NodeKind::ErrEmbedText => {
@@ -97,8 +95,7 @@ impl<'a> LogRender<'a> {
                         self.render_tree_prefix(dst, true);
                         self.pop_prefix();
                         self.color_err_key(dst);
-                        dst.extend_from_slice(log_render::predefined_key(PREDEFINED_NAME_TEXT));
-                        dst.extend_from_slice(b": ");
+                        dst.extend_from_slice(b"@text: ");
                         self.color_level_error(dst);
                         if is_embed_error {
                             let (len, off) = error_text;
@@ -259,7 +256,7 @@ impl<'a> LogRender<'a> {
                         self.push_prefix(is_last);
                         self.render_tree_prefix(dst, false);
                         self.color_err_meta(dst);
-                        dst.extend_from_slice(log_render::predefined_key(PREDEFINED_NAME_CONTEXT));
+                        dst.extend_from_slice(b"@context");
                         self.color_reset(dst);
                         dst.push(b'\n');
                         self.push_prefix(false);
@@ -271,7 +268,7 @@ impl<'a> LogRender<'a> {
                         self.push_prefix(is_last);
                         self.render_tree_prefix(dst, false);
                         self.color_err_meta(dst);
-                        dst.extend_from_slice(log_render::predefined_key(PREDEFINED_NAME_CONTEXT));
+                        dst.extend_from_slice(b"@context");
                         self.color_reset(dst);
                         dst.push(b'\n');
                         self.push_prefix(false);

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod test {
+    use std::fs;
     use crate::log_parser::LogParser;
     use crate::log_render::LogRender;
     use crate::log_render_color::ColorProfile;
-    use crate::log_transfomer_into_json::LogTransfomer;
-    use std::fs;
+    use crate::log_transfomer_into_json::LogTransfomerJSON;
     use std::io::{BufWriter, Write};
 
     #[test]
@@ -18,7 +18,7 @@ mod test {
         let mut dst: Vec<u8> = Vec::with_capacity(128 * 1024);
         let parser = LogParser::new();
 
-        let mut render = LogTransfomer::new();
+        let mut render = LogTransfomerJSON::new();
 
         let now = jiff::Timestamp::now();
         let mut count = 0;
@@ -31,7 +31,7 @@ mod test {
                 // rdata = x;
             }
             dst.push(b'\n');
-            writer.write_all(&dst).unwrap();
+            // writer.write_all(&dst).unwrap();
             line.clear();
             line.extend_from_slice(&mut dst);
             count += 1;
@@ -43,13 +43,13 @@ mod test {
     #[test]
     fn showcase_for_log_parser_and_render() {
         let files = &[
-            // &"./src/testdata/message_only.bin",
-            // &"./src/testdata/message_short_flat_context.bin",
+            &"./src/testdata/message_only.bin",
+            &"./src/testdata/message_short_flat_context.bin",
             &"./src/testdata/message_with_binary_in_ctx.bin",
             &"./src/testdata/message_with_loads_of_slices.bin",
             &"./src/testdata/group.bin",
-            // &"./src/testdata/errors.bin",
-            // &"./src/testdata/error_intmixed.bin",
+            &"./src/testdata/errors.bin",
+            &"./src/testdata/error_intmixed.bin",
             &"./src/testdata/error_foreign_root.bin",
             &"./src/testdata/panic.bin",
         ];
@@ -63,12 +63,12 @@ mod test {
     #[allow(unused_variables)]
     #[allow(unused)]
     fn show_json_output(file: &str) {
-        // let data = fs::read(file).unwrap();
-        // let rdata = data.as_slice();
+        let data = fs::read(file).unwrap();
+        let rdata = data.as_slice();
 
         unsafe {
             let mut dst: Vec<u8> = Vec::new();
-            let render = LogTransfomer::new();
+            let mut render = LogTransfomerJSON::new();
             // render.transform_json(&mut dst, rdata).unwrap();
             dst.push(b'\n');
 
@@ -82,7 +82,7 @@ mod test {
         let rdata = data.as_slice();
 
         let mut parser = LogParser::new();
-        let mut transfomer = LogTransfomer::new();
+        let mut transfomer = LogTransfomerJSON::new();
 
         unsafe {
             let mut render = LogRender::new(ColorProfile::light());

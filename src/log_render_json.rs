@@ -3,8 +3,8 @@
 
 use crate::log_parser_node::NodeKind;
 use crate::log_render;
-use crate::log_render::LogRender;
-use crate::value_kind::{PREDEFINED_NAME_CONTEXT, PREDEFINED_NAME_TEXT};
+use crate::log_render::{LogRender};
+use crate::pointer_ext::{PointerExt};
 use crate::{log_rend_json, slice_items};
 
 impl<'a> LogRender<'a> {
@@ -16,7 +16,9 @@ impl<'a> LogRender<'a> {
             }
 
             dst.push(b'{');
+            let node_ptr = self.ctx.as_ptr();
             let ptr = src.as_ptr();
+            let mut pos = 0 as usize;
             let mut old = false;
             let mut is_embed_err = false;
             let mut embed_err_text = (0 as usize, 0 as usize);
@@ -44,17 +46,12 @@ impl<'a> LogRender<'a> {
                         }
                         // We just closed an error. Need to render an error @text.
                         dst.extend_from_slice(b", ");
-                        log_rend_json::render_json_string(
-                            dst,
-                            log_render::predefined_key(PREDEFINED_NAME_TEXT),
-                        );
-                        dst.extend_from_slice(b": \"");
+                        dst.extend_from_slice(PRETTY_JSON_TEXT_PREFIX.as_bytes());
                         if self.err_stack.len() > 0 {
                             // It was an error with a computable text.
                             for (i, (len, off)) in self.err_stack.iter().rev().enumerate() {
                                 if i != 0 {
-                                    dst.push(b':');
-                                    dst.push(b' ');
+                                    dst.extend_from_slice(b": ");
                                 }
                                 log_rend_json::render_safe_json_string_ptr(
                                     dst,
@@ -265,14 +262,7 @@ impl<'a> LogRender<'a> {
                         in_err_depth += 1;
                         is_embed_err = false;
                         self.err_stack.clear();
-                        dst.push(b'{');
-                        log_rend_json::render_json_string(
-                            dst,
-                            log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
-                        );
-                        dst.push(b':');
-                        dst.push(b' ');
-                        dst.push(b'{');
+                        dst.extend_from_slice(PRETTY_JSON_CONTEXT_PREFIX.as_bytes());
                         old = false;
                         continue;
                     }
@@ -280,14 +270,7 @@ impl<'a> LogRender<'a> {
                         in_err_depth += 1;
                         is_embed_err = true;
                         self.err_stack.clear();
-                        dst.push(b'{');
-                        log_rend_json::render_json_string(
-                            dst,
-                            log_render::predefined_key(PREDEFINED_NAME_CONTEXT),
-                        );
-                        dst.push(b':');
-                        dst.push(b' ');
-                        dst.push(b'{');
+                        dst.extend_from_slice(PRETTY_JSON_CONTEXT_PREFIX.as_bytes());
                         old = false;
                         continue;
                     }
@@ -329,6 +312,9 @@ impl<'a> LogRender<'a> {
         }
     }
 }
+
+const PRETTY_JSON_CONTEXT_PREFIX: &'static str = r#"{"@context": {"#;
+const PRETTY_JSON_TEXT_PREFIX: &'static str = r#""@text": ""#;
 
 #[cfg(test)]
 mod test {

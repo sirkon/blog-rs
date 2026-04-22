@@ -1,65 +1,78 @@
+use crate::log_parse::ErrorLogParse;
+use crate::log_parse::ErrorLogParse::RecordContextNodePredefinedKeyUnknown;
+use num_enum::TryFromPrimitive;
 use std::fmt;
 
-pub type ValueKind = u64;
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueKind {
+    // --- GROUP 1: tree nodes and metadata ---
+    NewNode            = 1,
+    WrapNode           = 2,
+    JustContextNode    = 3,
+    LocationNode       = 4,
+    ForeignErrorText   = 5,
+    PhantomContextNode = 6,
+    Group              = 7,
+    Error              = 8,
+    ErrorEmbed         = 9,
+    GroupEnd           = 10,
 
-// --- GROUP 1: tree nodes and metadata  ---
-pub const NEW_NODE: ValueKind = 1;
-pub const WRAP_NODE: ValueKind = 2;
-pub const WRAP_INHERITED_NODE: ValueKind = 3;
-pub const JUST_CONTEXT_NODE: ValueKind = 4;
-pub const JUST_CONTEXT_INHERITED_NODE: ValueKind = 5;
-pub const LOCATION_NODE: ValueKind = 6;
-pub const FOREIGN_ERROR_TEXT: ValueKind = 7;
-pub const PHANTOM_CONTEXT_NODE: ValueKind = 8;
-pub const GROUP: ValueKind = 9;
-pub const ERROR: ValueKind = 10;
-pub const ERROR_EMBED: ValueKind = 11;
-pub const GROUP_END: ValueKind = 12;
+    // --- GROUP 2: Payload / base types ---
+    Bool               = 11,
+    Time               = 12,
+    Duration           = 13,
+    Ivar               = 14,
+    I8                 = 15,
+    I16                = 16,
+    I32                = 17,
+    I64                = 18,
+    Uvar               = 19,
+    U8                 = 20,
+    U16                = 21,
+    U32                = 22,
+    U64                = 23,
+    Float32            = 24,
+    Float64            = 25,
+    String             = 26,
+    Bytes              = 27,
+    ErrorRaw           = 28,
 
-// --- GROUP 2: Payload / base types (32+) ---
-pub const BOOL: ValueKind = 32;
-pub const TIME: ValueKind = 33;
-pub const DURATION: ValueKind = 34;
-pub const I: ValueKind = 35;
-pub const IVAR: ValueKind = 36;
-pub const I8: ValueKind = 37;
-pub const I16: ValueKind = 38;
-pub const I32: ValueKind = 39;
-pub const I64: ValueKind = 40;
-pub const U: ValueKind = 41;
-pub const UVAR: ValueKind = 42;
-pub const U8: ValueKind = 43;
-pub const U16: ValueKind = 44;
-pub const U32: ValueKind = 45;
-pub const U64: ValueKind = 46;
-pub const FLOAT32: ValueKind = 47;
-pub const FLOAT64: ValueKind = 48;
-pub const STRING: ValueKind = 49;
-pub const BYTES: ValueKind = 50;
-pub const ERROR_RAW: ValueKind = 51;
+    // --- GROUP 3: Slices ---
+    SliceBool          = 29,
+    SliceI8            = 30,
+    SliceI16           = 31,
+    SliceI32           = 32,
+    SliceI64           = 33,
+    SliceU8            = 34,
+    SliceU16           = 35,
+    SliceU32           = 36,
+    SliceU64           = 37,
+    SliceF32           = 38,
+    SliceF64           = 39,
+    SliceString        = 40,
+}
 
-// --- GROUP 3: Slices (64+) ---
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, TryFromPrimitive)]
+pub enum PredefinedKeyCode {
+    INVALID = 0,
+}
 
-pub const SLICE_BOOL: ValueKind = 64;
-pub const SLICE_I: ValueKind = 65;
-pub const SLICE_I8: ValueKind = 66;
-pub const SLICE_I16: ValueKind = 67;
-pub const SLICE_I32: ValueKind = 68;
-pub const SLICE_I64: ValueKind = 69;
-pub const SLICE_U: ValueKind = 70;
-pub const SLICE_U8: ValueKind = 71;
-pub const SLICE_U16: ValueKind = 72;
-pub const SLICE_U32: ValueKind = 73;
-pub const SLICE_U64: ValueKind = 74;
-pub const SLICE_F32: ValueKind = 75;
-pub const SLICE_F64: ValueKind = 76;
-pub const SLICE_STRING: ValueKind = 77;
+pub(crate) fn predefined_key(code: PredefinedKeyCode) -> &'static str {
+    match code {
+        PredefinedKeyCode::INVALID => "INVALID",
+    }
+}
 
-pub const MAX: ValueKind = 255;
-
-pub const PREDEFINED_NAME_CONTEXT: ValueKind = 1 << 8;
-pub const PREDEFINED_NAME_TEXT: ValueKind = 2 << 8;
-pub const PREDEFINED_NAME_LOCATION: ValueKind = 3 << 8;
+pub(crate) unsafe fn predefined_key_safe(code: u32) -> Result<&'static str, ErrorLogParse> {
+    unsafe {
+        match PredefinedKeyCode::try_from(code) {
+            Ok(x) => Ok(predefined_key(x)),
+            Err(_) => Err(RecordContextNodePredefinedKeyUnknown(code)),
+        }
+    }
+}
 
 // There're ValueKind values at 256 and further to represent [Attr] with predefined keys, where their
 // lowest byte represents a kind and the upper 7 bytes refer a key index.
@@ -67,85 +80,60 @@ pub const PREDEFINED_NAME_LOCATION: ValueKind = 3 << 8;
 #[allow(unused)]
 pub(crate) fn is_group_start(k: ValueKind) -> bool {
     match k {
-        NEW_NODE
-        | WRAP_NODE
-        | WRAP_INHERITED_NODE
-        | JUST_CONTEXT_NODE
-        | JUST_CONTEXT_INHERITED_NODE
-        | GROUP
-        | ERROR
-        | ERROR_EMBED => true,
+        ValueKind::NewNode
+        | ValueKind::WrapNode
+        | ValueKind::JustContextNode
+        | ValueKind::Group
+        | ValueKind::Error
+        | ValueKind::ErrorEmbed => true,
         _ => false,
     }
 }
 
 pub fn string(k: ValueKind) -> String {
-    match k & 0xFF {
-        NEW_NODE => "error.New".to_string(),
-        WRAP_NODE => "error.Wrap".to_string(),
-        WRAP_INHERITED_NODE => "error.Wrap(over foreign)".to_string(),
-        JUST_CONTEXT_NODE => "error.Ctx".to_string(),
-        JUST_CONTEXT_INHERITED_NODE => "error.Ctx(over foreign)".to_string(),
-        LOCATION_NODE => "location".to_string(),
-        FOREIGN_ERROR_TEXT => "error.(foreign text)".to_string(),
-        PHANTOM_CONTEXT_NODE => "errors.Ctx(phantom)".to_string(),
-        BOOL => "bool".to_string(),
-        TIME => "time.UnixNano".to_string(),
-        DURATION => "time.Duration".to_string(),
-        I => "int".to_string(),
-        I8 => "int8".to_string(),
-        I16 => "int16".to_string(),
-        I32 => "int32".to_string(),
-        I64 => "int64".to_string(),
-        U => "uint".to_string(),
-        U8 => "uint8".to_string(),
-        U16 => "uint16".to_string(),
-        U32 => "uint32".to_string(),
-        U64 => "uint64".to_string(),
-        FLOAT32 => "float32".to_string(),
-        FLOAT64 => "float64".to_string(),
-        STRING => "string".to_string(),
-        BYTES => "[]byte".to_string(),
-        ERROR_RAW => "error".to_string(),
-        ERROR => "beer.Error".to_string(),
-        ERROR_EMBED => "error.Intermixed".to_string(),
-        GROUP => "blog.Group".to_string(),
-        SLICE_BOOL => "[]bool".to_string(),
-        SLICE_I => "[]int".to_string(),
-        SLICE_I8 => "[]int8".to_string(),
-        SLICE_I16 => "[]int16".to_string(),
-        SLICE_I32 => "[]int32".to_string(),
-        SLICE_I64 => "[]int64".to_string(),
-        SLICE_U => "[]uint".to_string(),
-        SLICE_U8 => "[]uint8".to_string(),
-        SLICE_U16 => "[]uint16".to_string(),
-        SLICE_U32 => "[]uint32".to_string(),
-        SLICE_U64 => "[]uint64".to_string(),
-        SLICE_F32 => "[]float32".to_string(),
-        SLICE_F64 => "[]float64".to_string(),
-        SLICE_STRING => "[]string".to_string(),
-        _ => {
-            // Probably a predefined thing?
-            if k >> 8 > 0 {
-                let index = k >> 8;
-                if index <= PREDEFINED_KEYS.len() as ValueKind {
-                    let res = PREDEFINED_KEYS[(index - 1) as usize].to_string();
-                    let rem = k << 56 >> 56;
-                    if k << 56 >> 56 != 0 {
-                        return res + ":" + string(rem).as_str();
-                    }
-                    return res;
-                }
-            }
-            format!("value-kind-unknown[{}]", k)
-        }
+    match k {
+        ValueKind::NewNode => "error.New".to_string(),
+        ValueKind::WrapNode => "error.Wrap".to_string(),
+        ValueKind::JustContextNode => "error.Ctx".to_string(),
+        ValueKind::LocationNode => "location".to_string(),
+        ValueKind::ForeignErrorText => "error.(foreign text)".to_string(),
+        ValueKind::PhantomContextNode => "errors.Ctx(phantom)".to_string(),
+        ValueKind::Group => "blog.Group".to_string(),
+        ValueKind::Error => "beer.Error".to_string(),
+        ValueKind::ErrorEmbed => "error.Intermixed".to_string(),
+        ValueKind::GroupEnd => "group.end".to_string(),
+        ValueKind::Bool => "bool".to_string(),
+        ValueKind::Time => "time.UnixNano".to_string(),
+        ValueKind::Duration => "time.Duration".to_string(),
+        ValueKind::Ivar => "vaint".to_string(),
+        ValueKind::I8 => "int8".to_string(),
+        ValueKind::I16 => "int16".to_string(),
+        ValueKind::I32 => "int32".to_string(),
+        ValueKind::I64 => "int64".to_string(),
+        ValueKind::Uvar => "uvarint".to_string(),
+        ValueKind::U8 => "uint8".to_string(),
+        ValueKind::U16 => "uint16".to_string(),
+        ValueKind::U32 => "uint32".to_string(),
+        ValueKind::U64 => "uint64".to_string(),
+        ValueKind::Float32 => "float32".to_string(),
+        ValueKind::Float64 => "float64".to_string(),
+        ValueKind::String => "string".to_string(),
+        ValueKind::Bytes => "[]byte".to_string(),
+        ValueKind::ErrorRaw => "error".to_string(),
+        ValueKind::SliceBool => "[]bool".to_string(),
+        ValueKind::SliceI8 => "[]int8".to_string(),
+        ValueKind::SliceI16 => "[]int16".to_string(),
+        ValueKind::SliceI32 => "[]int32".to_string(),
+        ValueKind::SliceI64 => "[]int64".to_string(),
+        ValueKind::SliceU8 => "[]uint8".to_string(),
+        ValueKind::SliceU16 => "[]uint16".to_string(),
+        ValueKind::SliceU32 => "[]uint32".to_string(),
+        ValueKind::SliceU64 => "[]uint64".to_string(),
+        ValueKind::SliceF32 => "[]float32".to_string(),
+        ValueKind::SliceF64 => "[]float64".to_string(),
+        ValueKind::SliceString => "[]string".to_string(),
     }
 }
-
-// PredefinedKeys keys can be set via the extension of kind in the
-// higher 7 bytes of uint64. That extended bytes keep an index of
-// the key spec in this slice.
-pub const PREDEFINED_KEYS: &[&str] = &["@context", "@text", "@location"];
 
 // Нужно использовать новтип для реализации Display
 pub struct Kind(pub ValueKind);
@@ -153,48 +141,5 @@ pub struct Kind(pub ValueKind);
 impl fmt::Display for Kind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", string(self.0))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_constants() {
-        assert_eq!(NEW_NODE, 1);
-        assert_eq!(BOOL, 32);
-        assert_eq!(MAX, 255);
-        assert_eq!(PREDEFINED_NAME_CONTEXT, 256);
-    }
-
-    #[test]
-    fn test_display() {
-        assert_eq!(string(BOOL), "bool");
-        assert_eq!(string(ERROR), "beer.Error");
-        assert_eq!(string(SLICE_STRING), "[]string");
-        assert_eq!(string(SLICE_U8), "[]uint8");
-
-        // Test unknown
-        assert_eq!(string(254), "value-kind-unknown[254]");
-        assert_eq!(string(999), "@location:value-kind-unknown[231]");
-    }
-
-    #[test]
-    fn test_predefined() {
-        let location_kind = PREDEFINED_NAME_LOCATION; // index 0
-        assert_eq!(string(location_kind), "@location");
-
-        let location_kind = PREDEFINED_NAME_CONTEXT;
-        assert_eq!(string(location_kind), "@context");
-
-        let location_kind = PREDEFINED_NAME_TEXT;
-        assert_eq!(string(location_kind), "@text");
-    }
-
-    #[test]
-    fn test_kind_newtype() {
-        let kind = Kind(BOOL);
-        assert_eq!(kind.to_string(), "bool");
     }
 }

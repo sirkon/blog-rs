@@ -1,8 +1,9 @@
 #![allow(unused)]
 use crate::pointer_ext::PointerExt;
 use std::ptr::write_unaligned;
+use include_bytes_aligned::include_bytes_aligned;
 
-static ITOA_TABLE: &[u8; 200] = include_bytes!("itoa2.bin");
+static ITOA_TABLE: &[u8; 200] = include_bytes_aligned!(2, "itoa2.bin");
 const N: u64 = 100;
 
 #[inline(always)]

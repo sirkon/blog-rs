@@ -5,7 +5,6 @@ use crate::level;
 use crate::log_parser_node::Node;
 use crate::log_rend::{render_go_duration, render_time};
 use crate::log_render_color::ColorProfile;
-use crate::value_kind::{PREDEFINED_KEYS, ValueKind};
 use memchr::Memchr;
 use std::io::Read;
 use std::slice;
@@ -280,31 +279,8 @@ impl<'a> LogRender<'a> {
     }
 }
 
-pub(crate) fn predefined_key<'a>(key: ValueKind) -> &'a [u8] {
-    if key < 255 as ValueKind {
-        return "!invalid-predefined-key".as_bytes();
-    }
 
-    let index = (key >> 8) - 1;
-    if index >= PREDEFINED_KEYS.len() as ValueKind {
-        return "!unknown-predefined-key".as_bytes();
-    }
 
-    let value = PREDEFINED_KEYS[index as usize];
-    return value.as_bytes();
-}
-
-pub(crate) fn predefined_keys_safe<'a>(key: ValueKind) -> Result<&'a [u8], bool> {
-    if key < 255 as ValueKind {
-        return Err(false);
-    }
-    let index = (key >> 8) - 1;
-    if index >= PREDEFINED_KEYS.len() as ValueKind {
-        return Err(false);
-    }
-
-    Ok(PREDEFINED_KEYS[index as usize].as_bytes())
-}
 
 #[cfg(test)]
 mod test {
