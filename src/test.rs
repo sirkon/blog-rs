@@ -97,7 +97,7 @@ mod test {
 
             dst.clear();
             transfomer.transform(&mut dst, rdata).unwrap();
-            println!("{}", String::from_utf8_lossy(&dst));
+//            println!("{}", String::from_utf8_lossy(&dst));
         }
     }
 }

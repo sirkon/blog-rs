@@ -2,8 +2,9 @@
 #![allow(unsafe_code)]
 
 use crate::crc32custom::fast_crc32c;
+use core::arch::x86_64::{_pext_u64, _tzcnt_u64};
 use std::ptr::read_unaligned;
-use std::slice;
+use std::{ptr, slice};
 
 /// Parses input source for logs and splits it into (log_data, rest of the data) on happy path.
 /// The buffer must be long enough to have 8 bytes in it. Meaning, leave at last 8 bytes
@@ -88,33 +89,131 @@ pub(crate) enum ErrorLogParse {
     RecordContextNodePredefinedKeyUnknown(u32),
 }
 
+
+use std::arch::x86_64::*;
+
 #[inline(always)]
-pub(crate) unsafe fn read_uvarint(ptr: *const u8) -> (u64, usize) {
-    unsafe {
-        let b = *ptr;
-        if b < 0x80 {
-            return (u64::from(b), 1);
-        }
-
-        let c = *ptr.add(1);
-        if c < 0x80 {
-            return (u64::from(c) << 7 + u64::from(b), 2);
-        }
-
-        let mut res = 0u64;
-        let mut i = 0;
-        loop {
-            let b = *ptr.add(i);
-            res |= ((b & 0x7F) as u64) << (i * 7);
-            i += 1;
-            if b & 0x80 == 0 {
-                break;
-            }
-        }
-
-        (res, i)
+unsafe fn pair(v: u64) -> (u64, i32) {
+    if v & 0x80 == 0 {
+        return (v & 0x7F, 1);
     }
+
+    if v & 0x8000 == 0 {
+        return ((v & 0x7F) | ((v >> 8 & 0x7F) << 7), 2);
+    }
+
+    return ((v & 0x7F) | ((v >> 8 & 0x7F) << 7), 0);
 }
+
+#[inline(never)]
+#[cold]
+unsafe fn panic_overload() -> ! {
+    panic!("overflow decoding uvarint");
+}
+
+#[inline(always)]
+pub(crate) unsafe fn read_uvarint(src: *const u8) -> (u64, usize) {
+    let (v, ptr) = read_uvarint_ddd(src);
+    (v, ptr.offset_from(src) as usize)
+}
+
+#[inline(always)]
+unsafe fn read_uvarint_ddd(src: *const u8) -> (u64, *const u8) {
+    let v = *(src as *const u64);
+
+    // 1 байт
+    if v & 0x80 == 0 {
+        return (v & 127, src.add(1));
+    }
+
+    // 2 байта
+    if v & 0x8000 == 0 {
+        return (v & 127 | ((v >> 8) & 127) << 7, src.add(2));
+    }
+
+    let mut res = v & 127 | ((v >> 8) & 127) << 7;
+
+    // 3-4 байта
+    let (vv, off) = pair(v >> 16);
+    res |= vv << 14;
+    if off > 0 {
+        return (res, src.add(2 + off as usize));
+    }
+
+    // 5-6 байт
+    let (vv, off) = pair(v >> 32);
+    res |= vv << 28;
+    if off > 0 {
+        return (res, src.add(4 + off as usize));
+    }
+
+    // 7-8 байт
+    let (vv, off) = pair(v >> 48);
+    res |= vv << 42;
+    if off > 0 {
+        return (res, src.add(6 + off as usize));
+    }
+
+    // 9-10 байт (читаем из памяти)
+    let v = *(src.add(8) as *const u64);
+    let (vv, off) = pair(v & 0xFFFF);
+    res |= vv << 56;
+    if off > 0 {
+        return (res, src.add(8 + off as usize));
+    }
+
+    panic_overload();
+    (0, src)
+}
+
+// #[inline(always)]
+// pub(crate) unsafe fn read_uvarint(ptr: *const u8) -> (u64, usize) {
+//     unsafe { read_uvarint_pext(ptr) }
+// }
+
+/// Decodes a single LEB128 varint using the SFVInt technique (PEXT):
+/// - PEXT over 0x80.. gathers byte MSBs; trailing run of set bits equals the
+///   number of continuation bytes, i.e. len-1.
+/// - PEXT over 0x7f.. gathers the 7 payload bits of each byte into a packed
+///   little-endian stream.
+/// - ((1 << (7*len)) - 1) trims padding beyond the actual payload.
+///
+/// Data is assumed valid: at most 10 bytes, no overflow checking. The first 8
+/// bytes of the word are read unconditionally, so the caller must guarantee at
+/// least 8 readable bytes past `ptr`. Requires BMI2 (target-cpu=native).
+#[inline(always)]
+unsafe fn read_uvarint_pext(ptr: *const u8) -> (u64, usize) {
+    let word = (ptr as *const u64).read_unaligned();
+
+    // Находим длину через PEXT
+    let cont = _pext_u64(word, 0x8080_8080_8080_8080u64);
+    let len_minus_1 = _tzcnt_u64(!cont) as usize;
+    let len = len_minus_1 + 1;
+
+    // Парсим payload
+    let packed = _pext_u64(word, 0x7f7f_7f7f_7f7f_7f7fu64);
+    let mask = (1u64 << (7 * len)) - 1;
+    let mut result = packed & mask;
+    let mut total_len = len;
+
+    // Если len == 10 (т.е. len_minus_1 == 9) - читаем еще байты
+    // Используем беззнаковое сравнение для branchless
+    let need_more = (len_minus_1 >= 8) as usize;
+    if need_more != 0 {
+        let b9 = *ptr.add(8) as u64;
+        result |= (b9 & 0x7f) << 56;
+        total_len = 9;
+
+        if b9 & 0x80 != 0 {
+            let b10 = *ptr.add(9) as u64;
+            result |= (b10 & 0x7f) << 63;
+            total_len = 10;
+        }
+    }
+
+    (result, total_len)
+}
+
 
 #[inline]
 #[allow(unused)]
